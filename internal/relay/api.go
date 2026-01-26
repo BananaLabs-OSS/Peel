@@ -21,6 +21,7 @@ func NewAPI(relay *Relay, addr string) *API {
 func (a *API) Start() error {
 	http.HandleFunc("POST /routes", a.setRoute)
 	http.HandleFunc("DELETE /routes/{playerIP}", a.deleteRoute)
+	http.HandleFunc("DELETE /sessions/{playerIP}", a.closeSession)
 	http.HandleFunc("GET /routes", a.listRoutes)
 	http.HandleFunc("GET /health", a.health)
 
@@ -45,8 +46,15 @@ func (a *API) setRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	oldBackend, hadRoute := a.relay.Router().Get(req.PlayerIP)
 	a.relay.Router().Set(req.PlayerIP, req.Backend)
-	log.Printf("Route set: %s → %s", req.PlayerIP, req.Backend)
+
+	if hadRoute && oldBackend != req.Backend {
+		a.relay.UpdateSessionBackend(req.PlayerIP, req.Backend)
+		log.Printf("Route changed: %s %s → %s", req.PlayerIP, oldBackend, req.Backend)
+	} else {
+		log.Printf("Route set: %s → %s", req.PlayerIP, req.Backend)
+	}
 
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
@@ -61,7 +69,23 @@ func (a *API) deleteRoute(w http.ResponseWriter, r *http.Request) {
 	}
 
 	a.relay.Router().Delete(playerIP)
+	a.relay.CloseSession(playerIP)
 	log.Printf("Route deleted: %s", playerIP)
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+// DELETE /sessions/{playerIP}
+func (a *API) closeSession(w http.ResponseWriter, r *http.Request) {
+	playerIP := r.PathValue("playerIP")
+	if playerIP == "" {
+		http.Error(w, "player_ip required", http.StatusBadRequest)
+		return
+	}
+
+	a.relay.CloseSession(playerIP)
+	log.Printf("Session closed via API: %s", playerIP)
 
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})

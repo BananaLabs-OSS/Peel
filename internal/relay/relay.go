@@ -1,6 +1,7 @@
 package relay
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -10,15 +11,23 @@ import (
 	"time"
 )
 
+type PlayerSession struct {
+	PlayerAddr   *net.UDPAddr
+	Backend      string
+	BackendAddr  *net.UDPAddr
+	OutboundConn *net.UDPConn
+	quit         chan struct{}
+}
+
 type Relay struct {
 	listenAddr     string
 	defaultBackend string
 	router         *Router
-	conn           *net.UDPConn
+	inboundConn    *net.UDPConn
 
 	// Reverse mapping: backendAddr+playerPort → playerAddr
 	// So we know where to send responses
-	reverseMap sync.Map
+	sessions sync.Map // playerIP → *PlayerSession
 
 	bananasplitURL string
 	httpClient     *http.Client
@@ -47,7 +56,7 @@ func (r *Relay) Start() error {
 		return err
 	}
 
-	r.conn, err = net.ListenUDP("udp", addr)
+	r.inboundConn, err = net.ListenUDP("udp", addr)
 	if err != nil {
 		return err
 	}
@@ -61,7 +70,7 @@ func (r *Relay) Start() error {
 		case <-r.quit:
 			return nil
 		default:
-			n, playerAddr, err := r.conn.ReadFromUDP(buf)
+			n, playerAddr, err := r.inboundConn.ReadFromUDP(buf)
 			if err != nil {
 				continue
 			}
@@ -74,99 +83,147 @@ func (r *Relay) Start() error {
 func (r *Relay) handlePacket(data []byte, fromAddr *net.UDPAddr) {
 	fromIP := fromAddr.IP.String()
 
-	// Check if this is from a player (has a route)
-	backend, isPlayer := r.router.Get(fromIP)
-
-	if isPlayer {
-		r.forwardToBackend(data, fromAddr, backend)
-		return
+	backend, hasRoute := r.router.Get(fromIP)
+	if !hasRoute {
+		var err error
+		backend, err = r.requestRoute(fromIP)
+		if err != nil {
+			log.Printf("Failed to get route for %s: %v", fromIP, err)
+			return
+		}
+		r.router.Set(fromIP, backend)
 	}
 
-	// Check if this is from a backend (has a reverse mapping)
-	if r.isBackend(fromAddr) {
-		r.forwardToPlayer(data, fromAddr)
-		return
-	}
-
-	// Unknown IP - new player, need to assign
-	backend, err := r.assignPlayer(fromIP)
-	if err != nil {
-		log.Printf("Failed to assign %s: %v", fromIP, err)
-		return
-	}
-
-	// Set route and forward
-	r.router.Set(fromIP, backend)
 	r.forwardToBackend(data, fromAddr, backend)
 }
 
-func (r *Relay) isBackend(addr *net.UDPAddr) bool {
-	// Check if this address is in our reverse map (known backend)
-	_, exists := r.reverseMap.Load(addr.String())
-	return exists
-}
+func (r *Relay) getOrCreateSession(playerAddr *net.UDPAddr, backend string) (*PlayerSession, error) {
+	playerIP := playerAddr.IP.String()
 
-func (r *Relay) assignPlayer(playerIP string) (string, error) {
-	if r.bananasplitURL == "" {
-		return "", fmt.Errorf("no bananasplit URL configured")
+	if val, ok := r.sessions.Load(playerIP); ok {
+		session := val.(*PlayerSession)
+		// Don't check backend mismatch - let timer handle it
+		session.PlayerAddr = playerAddr
+		return session, nil
 	}
 
-	url := fmt.Sprintf("%s/assign?ip=%s", r.bananasplitURL, playerIP)
-
-	resp, err := r.httpClient.Get(url)
+	outbound, err := net.ListenUDP("udp", nil)
 	if err != nil {
-		return "", fmt.Errorf("assign request failed: %w", err)
+		return nil, err
+	}
+
+	backendAddr, err := net.ResolveUDPAddr("udp", backend)
+	if err != nil {
+		outbound.Close()
+		return nil, err
+	}
+
+	session := &PlayerSession{
+		PlayerAddr:   playerAddr,
+		Backend:      backend,
+		BackendAddr:  backendAddr,
+		OutboundConn: outbound,
+		quit:         make(chan struct{}),
+	}
+
+	r.sessions.Store(playerIP, session)
+	go r.readBackendResponses(session, playerIP)
+
+	log.Printf("Session created: %s → %s", playerIP, backend)
+	return session, nil
+}
+
+func (r *Relay) UpdateSessionBackend(playerIP, newBackend string) {
+	if val, ok := r.sessions.Load(playerIP); ok {
+		session := val.(*PlayerSession)
+		newAddr, err := net.ResolveUDPAddr("udp", newBackend)
+		if err == nil {
+			session.Backend = newBackend
+			session.BackendAddr = newAddr
+			log.Printf("Session backend updated: %s → %s", playerIP, newBackend)
+		}
+	}
+}
+
+func (r *Relay) readBackendResponses(session *PlayerSession, playerIP string) {
+	buf := make([]byte, 65535)
+
+	for {
+		select {
+		case <-session.quit:
+			return
+		default:
+			session.OutboundConn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
+			n, _, err := session.OutboundConn.ReadFromUDP(buf)
+			if err != nil {
+				if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+					continue
+				}
+				return
+			}
+			r.inboundConn.WriteToUDP(buf[:n], session.PlayerAddr)
+		}
+	}
+}
+
+func (r *Relay) CloseSession(playerIP string) {
+	if val, ok := r.sessions.LoadAndDelete(playerIP); ok {
+		session := val.(*PlayerSession)
+		close(session.quit)
+		session.OutboundConn.Close()
+		log.Printf("Session closed: %s", playerIP)
+	}
+}
+
+func (r *Relay) requestRoute(playerIP string) (string, error) {
+	if r.bananasplitURL == "" {
+		return "", fmt.Errorf("BANANASPLIT_URL not configured")
+	}
+
+	body, _ := json.Marshal(map[string]string{
+		"player_ip": playerIP,
+	})
+
+	resp, err := r.httpClient.Post(r.bananasplitURL+"/route-request", "application/json", bytes.NewReader(body))
+	if err != nil {
+		return "", err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		return "", fmt.Errorf("assign returned %d", resp.StatusCode)
+		return "", fmt.Errorf("route request failed: %d", resp.StatusCode)
 	}
 
 	var result struct {
 		Backend string `json:"backend"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", fmt.Errorf("decode failed: %w", err)
-	}
+	json.NewDecoder(resp.Body).Decode(&result)
 
-	log.Printf("Assigned %s → %s", playerIP, result.Backend)
+	log.Printf("Route assigned: %s -> %s", playerIP, result.Backend)
 	return result.Backend, nil
 }
 
 func (r *Relay) forwardToBackend(data []byte, playerAddr *net.UDPAddr, backend string) {
-	backendAddr, err := net.ResolveUDPAddr("udp", backend)
+	session, err := r.getOrCreateSession(playerAddr, backend)
 	if err != nil {
-		log.Printf("Invalid backend address %s: %v", backend, err)
+		log.Printf("Session error for %s: %v", playerAddr.IP.String(), err)
 		return
 	}
 
-	// Store reverse mapping: backend → player
-	r.reverseMap.Store(backendAddr.String(), playerAddr)
-
-	_, err = r.conn.WriteToUDP(data, backendAddr)
-	if err != nil {
-		log.Printf("Failed to forward to backend %s: %v", backend, err)
-	}
-}
-
-func (r *Relay) forwardToPlayer(data []byte, backendAddr *net.UDPAddr) {
-	// Look up which player this backend is talking to
-	playerAddr, ok := r.reverseMap.Load(backendAddr.String())
-	if !ok {
-		log.Printf("No player mapping for backend %s", backendAddr.String())
-		return
-	}
-
-	_, err := r.conn.WriteToUDP(data, playerAddr.(*net.UDPAddr))
-	if err != nil {
-		log.Printf("Failed to forward to player: %v", err)
-	}
+	session.OutboundConn.WriteToUDP(data, session.BackendAddr)
 }
 
 func (r *Relay) Stop() {
 	close(r.quit)
-	if r.conn != nil {
-		r.conn.Close()
+
+	r.sessions.Range(func(key, value any) bool {
+		session := value.(*PlayerSession)
+		close(session.quit)
+		session.OutboundConn.Close()
+		return true
+	})
+
+	if r.inboundConn != nil {
+		r.inboundConn.Close()
 	}
 }
