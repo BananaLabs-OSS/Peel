@@ -33,6 +33,11 @@ Players connect to Peel's public address. Peel looks up their IP in the route ta
 | `GET` | `/routes` | List all routes |
 | `POST` | `/routes` | Set route |
 | `DELETE` | `/routes/:player_ip` | Remove route |
+| `DELETE` | `/sessions/:player_ip` | Close session only (keep route) |
+
+## Sessions
+
+When a route is updated for an existing player, the session's backend is hot-swapped in-place without closing the UDP socket. Use `DELETE /sessions/:player_ip` to explicitly close a session after sending a refer packet.
 
 **Set Route:**
 ```json
