@@ -57,6 +57,7 @@ func (r *Relay) Start() error {
 	}
 
 	r.inboundConn, err = net.ListenUDP("udp", addr)
+	r.inboundConn.SetReadBuffer(8 * 1024 * 1024)
 	if err != nil {
 		return err
 	}
@@ -75,7 +76,9 @@ func (r *Relay) Start() error {
 				continue
 			}
 
-			go r.handlePacket(buf[:n], playerAddr)
+			data := make([]byte, n)
+			copy(data, buf[:n])
+			go r.handlePacket(data, playerAddr)
 		}
 	}
 }
@@ -112,6 +115,8 @@ func (r *Relay) getOrCreateSession(playerAddr *net.UDPAddr, backend string) (*Pl
 		return nil, err
 	}
 
+	outbound.SetReadBuffer(8 * 1024 * 1024)
+
 	backendAddr, err := net.ResolveUDPAddr("udp", backend)
 	if err != nil {
 		outbound.Close()
@@ -126,9 +131,14 @@ func (r *Relay) getOrCreateSession(playerAddr *net.UDPAddr, backend string) (*Pl
 		quit:         make(chan struct{}),
 	}
 
-	r.sessions.Store(playerIP, session)
-	go r.readBackendResponses(session, playerIP)
+	actual, loaded := r.sessions.LoadOrStore(playerIP, session)
+	if loaded {
+		// Someone else created it first, clean up ours
+		outbound.Close()
+		return actual.(*PlayerSession), nil
+	}
 
+	go r.readBackendResponses(session, playerIP)
 	log.Printf("Session created: %s → %s", playerIP, backend)
 	return session, nil
 }
