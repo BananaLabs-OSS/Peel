@@ -13,8 +13,32 @@ Peel is a transparent UDP relay that routes player traffic to game servers based
 go run ./cmd/server
 ```
 
-- UDP relay: `:5520`
-- HTTP API: `:8080`
+## Configuration
+
+Configuration priority: CLI flags > Environment variables > Defaults
+
+| Setting | Env Var | CLI Flag | Default |
+|---------|---------|----------|---------|
+| UDP listen address | `PEEL_LISTEN_ADDR` | `-listen` | `:5520` |
+| HTTP API address | `PEEL_API_ADDR` | `-api` | `:8080` |
+| Bananasplit URL | `BANANASPLIT_URL` | `-bananasplit` | `http://localhost:3000` |
+| Socket buffer size | `PEEL_BUFFER_SIZE` | `-buffer` | `8388608` (8MB) |
+
+**CLI:**
+```bash
+./peel -listen :5520 -api :8080 -bananasplit http://localhost:3000 -buffer 8388608
+```
+
+**Docker Compose:**
+```yaml
+peel:
+  image: localhost/peel:local
+  ports:
+    - "5530:5520/udp"
+    - "8080:8080"
+  environment:
+    - BANANASPLIT_URL=http://bananasplit:3000
+```
 
 ## How It Works
 ```
