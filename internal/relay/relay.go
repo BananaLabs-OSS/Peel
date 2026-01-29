@@ -31,11 +31,12 @@ type Relay struct {
 
 	bananasplitURL string
 	httpClient     *http.Client
+	bufferSize     int
 
 	quit chan struct{}
 }
 
-func New(listenAddr, defaultBackend string, bananasplitURL string) *Relay {
+func New(listenAddr, defaultBackend string, bananasplitURL string, bufferSize int) *Relay {
 	return &Relay{
 		listenAddr:     listenAddr,
 		defaultBackend: defaultBackend,
@@ -43,6 +44,7 @@ func New(listenAddr, defaultBackend string, bananasplitURL string) *Relay {
 		quit:           make(chan struct{}),
 		bananasplitURL: bananasplitURL,
 		httpClient:     &http.Client{Timeout: 5 * time.Second},
+		bufferSize:     bufferSize,
 	}
 }
 
@@ -57,7 +59,7 @@ func (r *Relay) Start() error {
 	}
 
 	r.inboundConn, err = net.ListenUDP("udp", addr)
-	r.inboundConn.SetReadBuffer(8 * 1024 * 1024)
+	r.inboundConn.SetReadBuffer(r.bufferSize)
 	if err != nil {
 		return err
 	}
@@ -115,7 +117,7 @@ func (r *Relay) getOrCreateSession(playerAddr *net.UDPAddr, backend string) (*Pl
 		return nil, err
 	}
 
-	outbound.SetReadBuffer(8 * 1024 * 1024)
+	outbound.SetReadBuffer(r.bufferSize)
 
 	backendAddr, err := net.ResolveUDPAddr("udp", backend)
 	if err != nil {
