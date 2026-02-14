@@ -28,7 +28,7 @@ func main() {
 	}{
 		ListenAddr:     resolve(*listenAddr, getEnv("PEEL_LISTEN_ADDR", ""), ":5520"),
 		APIAddr:        resolve(*apiAddr, getEnv("PEEL_API_ADDR", ""), ":8080"),
-		BananasplitURL: resolve(*bananasplitURL, getEnv("BANANASPLIT_URL", ""), "http://localhost:3000"),
+		BananasplitURL: resolve(*bananasplitURL, getEnv("BANANASPLIT_URL", ""), "http://localhost:3001"),
 		BufferSize:     resolveInt(*bufferSize, getEnvInt("PEEL_BUFFER_SIZE", 0), 8*1024*1024),
 	}
 
