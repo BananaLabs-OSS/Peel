@@ -9,6 +9,7 @@ From [BananaLabs OSS](https://github.com/bananalabs-oss).
 Peel is a transparent UDP relay that routes player traffic to game servers based on their IP address. Routes are updated dynamically via HTTP API, enabling seamless server transfers without client reconnection.
 
 ## Quick Start
+
 ```bash
 go run ./cmd/server
 ```
@@ -17,19 +18,21 @@ go run ./cmd/server
 
 Configuration priority: CLI flags > Environment variables > Defaults
 
-| Setting | Env Var | CLI Flag | Default |
-|---------|---------|----------|---------|
-| UDP listen address | `PEEL_LISTEN_ADDR` | `-listen` | `:5520` |
-| HTTP API address | `PEEL_API_ADDR` | `-api` | `:8080` |
-| Bananasplit URL | `BANANASPLIT_URL` | `-bananasplit` | `http://localhost:3000` |
-| Socket buffer size | `PEEL_BUFFER_SIZE` | `-buffer` | `8388608` (8MB) |
+| Setting            | Env Var            | CLI Flag       | Default                 |
+| ------------------ | ------------------ | -------------- | ----------------------- |
+| UDP listen address | `PEEL_LISTEN_ADDR` | `-listen`      | `:5520`                 |
+| HTTP API address   | `PEEL_API_ADDR`    | `-api`         | `:8080`                 |
+| Bananasplit URL    | `BANANASPLIT_URL`  | `-bananasplit` | `http://localhost:3001` |
+| Socket buffer size | `PEEL_BUFFER_SIZE` | `-buffer`      | `8388608` (8MB)         |
 
 **CLI:**
+
 ```bash
-./peel -listen :5520 -api :8080 -bananasplit http://localhost:3000 -buffer 8388608
+./peel -listen :5520 -api :8080 -bananasplit http://localhost:3001 -buffer 8388608
 ```
 
 **Docker Compose:**
+
 ```yaml
 peel:
   image: localhost/peel:local
@@ -37,10 +40,11 @@ peel:
     - "5530:5520/udp"
     - "8080:8080"
   environment:
-    - BANANASPLIT_URL=http://bananasplit:3000
+    - BANANASPLIT_URL=http://bananasplit:3001
 ```
 
 ## How It Works
+
 ```
 Player (192.168.1.50) → Peel (:5520) → Backend (game server)
                             ↑
@@ -52,11 +56,11 @@ Players connect to Peel's public address. Peel looks up their IP in the route ta
 
 ## API Reference
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `GET` | `/routes` | List all routes |
-| `POST` | `/routes` | Set route |
-| `DELETE` | `/routes/:player_ip` | Remove route |
+| Method   | Endpoint               | Description                     |
+| -------- | ---------------------- | ------------------------------- |
+| `GET`    | `/routes`              | List all routes                 |
+| `POST`   | `/routes`              | Set route                       |
+| `DELETE` | `/routes/:player_ip`   | Remove route                    |
 | `DELETE` | `/sessions/:player_ip` | Close session only (keep route) |
 
 ## Sessions
@@ -64,6 +68,7 @@ Players connect to Peel's public address. Peel looks up their IP in the route ta
 When a route is updated for an existing player, the session's backend is hot-swapped in-place without closing the UDP socket. Use `DELETE /sessions/:player_ip` to explicitly close a session after sending a refer packet.
 
 **Set Route:**
+
 ```json
 {
   "player_ip": "192.168.1.50",
@@ -72,6 +77,7 @@ When a route is updated for an existing player, the session's backend is hot-swa
 ```
 
 **List Routes Response:**
+
 ```json
 {
   "192.168.1.50": "10.99.0.10:5520",
@@ -88,6 +94,7 @@ When a route is updated for an existing player, the session's backend is hot-swa
 5. Backend response forwarded back to player
 
 **Server Transfer:**
+
 1. Bananasplit updates route: `192.168.1.50 → 10.99.0.11:5520`
 2. Next packet goes to new server
 3. Player seamlessly transferred
@@ -95,3 +102,4 @@ When a route is updated for an existing player, the session's backend is hot-swa
 ## License
 
 MIT
+

@@ -59,10 +59,10 @@ func (r *Relay) Start() error {
 	}
 
 	r.inboundConn, err = net.ListenUDP("udp", addr)
-	r.inboundConn.SetReadBuffer(r.bufferSize)
 	if err != nil {
 		return err
 	}
+	r.inboundConn.SetReadBuffer(r.bufferSize)
 
 	log.Printf("UDP relay listening on %s", r.listenAddr)
 
