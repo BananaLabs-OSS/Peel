@@ -5,10 +5,10 @@ import (
 	"log"
 	"os"
 	"os/signal"
-	"strconv"
 	"syscall"
 
 	"github.com/bananalabs-oss/peel/internal/relay"
+	"github.com/bananalabs-oss/potassium/config"
 )
 
 func main() {
@@ -26,10 +26,10 @@ func main() {
 		BananasplitURL string
 		BufferSize     int
 	}{
-		ListenAddr:     resolve(*listenAddr, getEnv("PEEL_LISTEN_ADDR", ""), ":5520"),
-		APIAddr:        resolve(*apiAddr, getEnv("PEEL_API_ADDR", ""), ":8080"),
-		BananasplitURL: resolve(*bananasplitURL, getEnv("BANANASPLIT_URL", ""), "http://localhost:3001"),
-		BufferSize:     resolveInt(*bufferSize, getEnvInt("PEEL_BUFFER_SIZE", 0), 8*1024*1024),
+		ListenAddr:     config.Resolve(*listenAddr, config.EnvOrDefault("PEEL_LISTEN_ADDR", ""), ":5520"),
+		APIAddr:        config.Resolve(*apiAddr, config.EnvOrDefault("PEEL_API_ADDR", ""), ":8080"),
+		BananasplitURL: config.Resolve(*bananasplitURL, config.EnvOrDefault("BANANASPLIT_URL", ""), "http://localhost:3001"),
+		BufferSize:     config.ResolveInt(*bufferSize, config.EnvOrDefaultInt("PEEL_BUFFER_SIZE", 0), 8*1024*1024),
 	}
 
 	// Create relay
@@ -56,39 +56,3 @@ func main() {
 	r.Stop()
 }
 
-// resolve returns first non-empty value: cli > env > fallback
-func resolve(cli, env, fallback string) string {
-	if cli != "" {
-		return cli
-	}
-	if env != "" {
-		return env
-	}
-	return fallback
-}
-
-func resolveInt(cli, env, fallback int) int {
-	if cli != 0 {
-		return cli
-	}
-	if env != 0 {
-		return env
-	}
-	return fallback
-}
-
-func getEnv(key, fallback string) string {
-	if val := os.Getenv(key); val != "" {
-		return val
-	}
-	return fallback
-}
-
-func getEnvInt(key string, fallback int) int {
-	if val := os.Getenv(key); val != "" {
-		if i, err := strconv.Atoi(val); err == nil {
-			return i
-		}
-	}
-	return fallback
-}
