@@ -147,13 +147,15 @@ func (r *Relay) getOrCreateSession(playerAddr *net.UDPAddr, backend string) (*Pl
 
 func (r *Relay) UpdateSessionBackend(playerIP, newBackend string) {
 	if val, ok := r.sessions.Load(playerIP); ok {
-		session := val.(*PlayerSession)
-		newAddr, err := net.ResolveUDPAddr("udp", newBackend)
-		if err == nil {
-			session.Backend = newBackend
-			session.BackendAddr = newAddr
-			log.Printf("Session backend updated: %s → %s", playerIP, newBackend)
+		if _, err := net.ResolveUDPAddr("udp", newBackend); err != nil {
+			return
 		}
+		// Close old session and create new one with updated backend
+		r.CloseSession(playerIP)
+		log.Printf("Session backend updated: %s → %s", playerIP, newBackend)
+		// Next packet from this player will create a new session with the new backend
+		r.router.Set(playerIP, newBackend)
+		_ = val // consumed by CloseSession via LoadAndDelete
 	}
 }
 
@@ -181,7 +183,12 @@ func (r *Relay) readBackendResponses(session *PlayerSession, playerIP string) {
 func (r *Relay) CloseSession(playerIP string) {
 	if val, ok := r.sessions.LoadAndDelete(playerIP); ok {
 		session := val.(*PlayerSession)
-		close(session.quit)
+		select {
+		case <-session.quit:
+			// Already closed
+		default:
+			close(session.quit)
+		}
 		session.OutboundConn.Close()
 		log.Printf("Session closed: %s", playerIP)
 	}
@@ -209,7 +216,9 @@ func (r *Relay) requestRoute(playerIP string) (string, error) {
 	var result struct {
 		Backend string `json:"backend"`
 	}
-	json.NewDecoder(resp.Body).Decode(&result)
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", fmt.Errorf("failed to decode route response: %w", err)
+	}
 
 	log.Printf("Route assigned: %s -> %s", playerIP, result.Backend)
 	return result.Backend, nil
@@ -230,8 +239,14 @@ func (r *Relay) Stop() {
 
 	r.sessions.Range(func(key, value any) bool {
 		session := value.(*PlayerSession)
-		close(session.quit)
+		select {
+		case <-session.quit:
+			// Already closed
+		default:
+			close(session.quit)
+		}
 		session.OutboundConn.Close()
+		r.sessions.Delete(key)
 		return true
 	})
 
