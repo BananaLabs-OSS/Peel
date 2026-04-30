@@ -1,0 +1,25 @@
+name = "peel"
+version = "0.1.0"
+wasm = "peel.wasm"
+
+capabilities = [
+    "transport.http.inbound",
+    "transport.http.outbound",
+    "network.udp",
+]
+
+[config]
+# UDP relay listen address — inbound player traffic
+listen_addr = ":5520"
+
+# HTTP control API listen address — Bananasplit manages routes here
+api_addr = ":8080"
+
+# Bananasplit URL for on-demand route lookups
+bananasplit_url = "http://localhost:3001"
+
+# Socket read buffer size in bytes (8 MiB default)
+buffer_size = 8388608
+
+# Idle session timeout — sessions with no activity for this long are closed
+idle_timeout = "10m"

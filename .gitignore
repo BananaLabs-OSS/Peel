@@ -30,3 +30,8 @@ go.work.sum
 # Editor/IDE
 .idea/
 # .vscode/
+
+pulp-cell/*.wasm
+pulp-cell/data/
+pulp-deployment/app
+pulp-deployment/data/
