@@ -13,7 +13,6 @@ WORKDIR /app
 COPY --from=builder /build/peel .
 EXPOSE 8080 5520/udp
 
-HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
-    CMD pgrep -x peel > /dev/null || exit 1
+HEALTHCHECK --interval=30s --timeout=5s CMD wget -qO- http://localhost:8080/health || exit 1
 
 CMD ["./peel"]
