@@ -8,11 +8,12 @@ import (
 	"net"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
 type PlayerSession struct {
-	PlayerAddr   *net.UDPAddr
+	PlayerAddr   atomic.Pointer[net.UDPAddr]
 	Backend      string
 	BackendAddr  *net.UDPAddr
 	OutboundConn *net.UDPConn
@@ -108,7 +109,7 @@ func (r *Relay) getOrCreateSession(playerAddr *net.UDPAddr, backend string) (*Pl
 	if val, ok := r.sessions.Load(playerIP); ok {
 		session := val.(*PlayerSession)
 		// Don't check backend mismatch - let timer handle it
-		session.PlayerAddr = playerAddr
+		session.PlayerAddr.Store(playerAddr)
 		return session, nil
 	}
 
@@ -126,12 +127,12 @@ func (r *Relay) getOrCreateSession(playerAddr *net.UDPAddr, backend string) (*Pl
 	}
 
 	session := &PlayerSession{
-		PlayerAddr:   playerAddr,
 		Backend:      backend,
 		BackendAddr:  backendAddr,
 		OutboundConn: outbound,
 		quit:         make(chan struct{}),
 	}
+	session.PlayerAddr.Store(playerAddr)
 
 	actual, loaded := r.sessions.LoadOrStore(playerIP, session)
 	if loaded {
@@ -175,7 +176,7 @@ func (r *Relay) readBackendResponses(session *PlayerSession, playerIP string) {
 				}
 				return
 			}
-			r.inboundConn.WriteToUDP(buf[:n], session.PlayerAddr)
+			r.inboundConn.WriteToUDP(buf[:n], session.PlayerAddr.Load())
 		}
 	}
 }

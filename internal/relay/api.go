@@ -3,6 +3,7 @@ package relay
 import (
 	"encoding/json"
 	"log"
+	"net"
 	"net/http"
 )
 
@@ -43,6 +44,11 @@ func (a *API) setRoute(w http.ResponseWriter, r *http.Request) {
 
 	if req.PlayerIP == "" || req.Backend == "" {
 		http.Error(w, "player_ip and backend required", http.StatusBadRequest)
+		return
+	}
+
+	if _, err := net.ResolveUDPAddr("udp", req.Backend); err != nil {
+		http.Error(w, `{"error":"invalid backend address"}`, http.StatusBadRequest)
 		return
 	}
 

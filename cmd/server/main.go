@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/bananalabs-oss/peel/internal/relay"
 	"github.com/bananalabs-oss/potassium/config"
@@ -37,10 +38,17 @@ func main() {
 
 	// Start API
 	api := relay.NewAPI(r, config.APIAddr)
-	go api.Start()
+	errCh := make(chan error, 2)
+	go func() { errCh <- api.Start() }()
+	go func() { errCh <- r.Start() }()
 
-	// Start relay
-	go r.Start()
+	// Give servers a moment to bind
+	time.Sleep(100 * time.Millisecond)
+	select {
+	case err := <-errCh:
+		log.Fatalf("Failed to start: %v", err)
+	default:
+	}
 
 	log.Printf("Peel relay listening on %s", config.ListenAddr)
 	log.Printf("API listening on %s", config.APIAddr)
