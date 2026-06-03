@@ -25,8 +25,12 @@ buffer_size = 8388608
 idle_timeout = "10m"
 
 # Shared secret gating the mutating control API (POST /routes,
-# DELETE /routes/:ip, DELETE /sessions/:ip). Callers (Bananasplit) must
-# send it as the X-Service-Token header. The cell refuses to start when
-# this is empty (fail closed). Prefer the SERVICE_TOKEN env var so the
-# secret stays out of committed config; the env var overrides this value.
+# DELETE /routes/:ip, DELETE /sessions/:ip). Auth is OFF unless this is
+# set: when empty (the default) the cell starts and serves the control API
+# WITHOUT auth (no outage) — the control port is internal-only-bounded
+# (only the UDP listener is published). To ENABLE auth, set a non-empty
+# token HERE *and* have callers (Bananasplit PeelClient, Potassium
+# relay.Client) send the same value as the X-Service-Token header, in
+# lockstep. Prefer the SERVICE_TOKEN env var so the secret stays out of
+# committed config; the env var overrides this value.
 service_token = ""

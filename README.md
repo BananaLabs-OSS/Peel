@@ -63,6 +63,28 @@ Players connect to Peel's public address. Peel looks up their IP in the route ta
 | `DELETE` | `/routes/:player_ip`   | Remove route                    |
 | `DELETE` | `/sessions/:player_ip` | Close session only (keep route) |
 
+## Control-API auth (X-Service-Token)
+
+The mutating control endpoints (`POST /routes`, `DELETE /routes/:ip`,
+`DELETE /sessions/:ip`) support an optional `X-Service-Token` shared-secret
+gate. **Auth is OFF unless `SERVICE_TOKEN` is set.**
+
+- **`SERVICE_TOKEN` empty (default):** the cell starts and serves the
+  control API without auth. The control port is internal-only-bounded — the
+  cell publishes only the UDP listener — so it is reachable only from
+  sibling cells on the Pulp host. This is the current behavior; no caller
+  changes are required.
+- **`SERVICE_TOKEN` set (non-empty):** the three mutating endpoints require
+  a matching `X-Service-Token` header (constant-time compared); requests
+  without it get `401`. The GET observability routes (`/routes`, `/health`)
+  stay open.
+
+To **enable** auth, do both in lockstep: set `SERVICE_TOKEN` here AND have
+the callers (Bananasplit's `PeelClient`, Potassium's `relay.Client`) send
+the same value as the `X-Service-Token` header. Setting only one side will
+either break the control plane (token set in Peel but callers don't send
+it) or do nothing (callers send a token Peel ignores).
+
 ## Sessions
 
 When a route is updated for an existing player, the session's backend is hot-swapped in-place without closing the UDP socket. Use `DELETE /sessions/:player_ip` to explicitly close a session after sending a refer packet.

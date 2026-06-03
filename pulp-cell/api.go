@@ -12,21 +12,32 @@ import (
 // changes here; operators can use GET /health and GET /routes for
 // observability.
 //
-// The three state-mutating endpoints (POST /routes, DELETE /routes/:ip,
-// DELETE /sessions/:ip) are gated on the X-Service-Token shared secret —
-// the same SERVICE_TOKEN pattern Bananagine/Bananauth use — so a network
-// peer that can reach the control port cannot repoint or tear down player
-// routes (MITM/DoS) without the secret. bootstrap fails closed when the
-// token is empty, so this middleware is never a pass-through. The GET
-// observability routes (/routes, /health) are left open intentionally.
+// Auth posture: auth-available-not-mandatory. The three state-mutating
+// endpoints (POST /routes, DELETE /routes/:ip, DELETE /sessions/:ip) are
+// gated on the X-Service-Token shared secret — the same SERVICE_TOKEN
+// pattern Bananagine/Bananauth use — ONLY when serviceToken is non-empty.
+// When the token is empty (the default today), the mutating routes are
+// registered WITHOUT the auth middleware so the existing callers
+// (Bananasplit PeelClient, Potassium relay.Client), which send no
+// X-Service-Token, keep working — no 401, no outage. The control API is
+// internal-only-bounded (the cell publishes only the UDP listener), so an
+// unauthenticated control port is reachable only from sibling cells on the
+// Pulp host. To ENABLE auth: set SERVICE_TOKEN here AND have the callers
+// send X-Service-Token, in lockstep. The GET observability routes
+// (/routes, /health) are always open intentionally.
 func registerRoutes(r *pulpgin.Engine, relay *Relay, serviceToken string) {
-	// Mutating routes ride a root group gated on X-Service-Token. The
-	// empty group prefix keeps the paths identical to native Peel; only
-	// the auth middleware is interposed.
-	authed := r.Group("", middleware.ServiceAuth(serviceToken))
-	authed.POST("/routes", setRoute(relay))
-	authed.DELETE("/routes/:playerIP", deleteRoute(relay))
-	authed.DELETE("/sessions/:playerIP", closeSession(relay))
+	// Mutating routes ride a root group. The empty group prefix keeps the
+	// paths identical to native Peel; only the auth middleware (when a
+	// token is configured) is interposed.
+	var mutating *pulpgin.RouterGroup
+	if serviceToken != "" {
+		mutating = r.Group("", middleware.ServiceAuth(serviceToken))
+	} else {
+		mutating = r.Group("")
+	}
+	mutating.POST("/routes", setRoute(relay))
+	mutating.DELETE("/routes/:playerIP", deleteRoute(relay))
+	mutating.DELETE("/sessions/:playerIP", closeSession(relay))
 
 	r.GET("/routes", listRoutes(relay))
 	r.GET("/health", health)

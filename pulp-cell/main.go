@@ -36,13 +36,16 @@ func bootstrap(configBytes []byte) error {
 		return fmt.Errorf("parse config: %w", err)
 	}
 
-	// Fail closed: the mutating control API is gated on SERVICE_TOKEN.
-	// Refuse to start with auth disabled rather than silently exposing
-	// route mutation/teardown to anyone who can reach the control port.
-	// Mirrors Bananagine's bootstrap posture.
-	if cfg.ServiceToken == "" {
-		return fmt.Errorf("SERVICE_TOKEN is required: refusing to start with auth disabled")
-	}
+	// Auth posture: auth-available-not-mandatory. The mutating control API
+	// (POST /routes, DELETE /routes/:ip, DELETE /sessions/:ip) is gated on
+	// X-Service-Token ONLY when SERVICE_TOKEN is configured (non-empty).
+	// The control API is internal-only-bounded — the cell publishes only
+	// the UDP listener; the HTTP control port is reachable only from
+	// sibling cells on the Pulp host. So when no token is set we start and
+	// serve unauthenticated (today's behavior, no outage). To ENABLE auth,
+	// set SERVICE_TOKEN HERE *and* have the callers (Bananasplit PeelClient,
+	// Potassium relay.Client) send the same X-Service-Token — in lockstep.
+	// Deliberately NOT fail-closed: an empty token must not block startup.
 
 	// --- Relay ---
 	relay := New(cfg.ListenAddr, cfg.BananasplitURL, cfg.BufferSize, cfg.IdleTimeout)
@@ -66,7 +69,11 @@ func bootstrap(configBytes []byte) error {
 	}
 	r := pulpgin.New()
 	registerRoutes(r, relay, cfg.ServiceToken)
-	log.Printf("Service auth enabled (X-Service-Token required)")
+	if cfg.ServiceToken != "" {
+		log.Printf("Control-API auth ENABLED (X-Service-Token required on mutating routes)")
+	} else {
+		log.Printf("Control-API auth OFF (SERVICE_TOKEN empty); to enable, set SERVICE_TOKEN here AND have callers (Bananasplit PeelClient, Potassium relay.Client) send X-Service-Token")
+	}
 	if err := r.RegisterRoutes(); err != nil {
 		return fmt.Errorf("register routes: %w", err)
 	}

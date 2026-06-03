@@ -77,8 +77,9 @@ func parseConfig(data []byte) (appConfig, error) {
 
 	// SERVICE_TOKEN env (set by the Pulp host) wins over the manifest so
 	// secrets stay out of the committed pulp.cell.toml. The mutating
-	// control API is gated on this token; bootstrap fails closed if it's
-	// empty.
+	// control API is gated on this token ONLY when it's non-empty; an empty
+	// token leaves the control API unauthenticated (no outage) and the cell
+	// still starts. See registerRoutes / bootstrap for the auth posture.
 	cfg.ServiceToken = tmp.ServiceToken
 	if st := os.Getenv("SERVICE_TOKEN"); st != "" {
 		cfg.ServiceToken = st
