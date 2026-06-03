@@ -36,6 +36,14 @@ func bootstrap(configBytes []byte) error {
 		return fmt.Errorf("parse config: %w", err)
 	}
 
+	// Fail closed: the mutating control API is gated on SERVICE_TOKEN.
+	// Refuse to start with auth disabled rather than silently exposing
+	// route mutation/teardown to anyone who can reach the control port.
+	// Mirrors Bananagine's bootstrap posture.
+	if cfg.ServiceToken == "" {
+		return fmt.Errorf("SERVICE_TOKEN is required: refusing to start with auth disabled")
+	}
+
 	// --- Relay ---
 	relay := New(cfg.ListenAddr, cfg.BananasplitURL, cfg.BufferSize, cfg.IdleTimeout)
 	if err := relay.Start(); err != nil {
@@ -57,7 +65,8 @@ func bootstrap(configBytes []byte) error {
 		}
 	}
 	r := pulpgin.New()
-	registerRoutes(r, relay)
+	registerRoutes(r, relay, cfg.ServiceToken)
+	log.Printf("Service auth enabled (X-Service-Token required)")
 	if err := r.RegisterRoutes(); err != nil {
 		return fmt.Errorf("register routes: %w", err)
 	}

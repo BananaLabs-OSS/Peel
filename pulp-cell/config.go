@@ -14,6 +14,7 @@ type appConfig struct {
 	BananasplitURL string
 	BufferSize     int
 	IdleTimeout    time.Duration
+	ServiceToken   string
 }
 
 func parseConfig(data []byte) (appConfig, error) {
@@ -34,6 +35,7 @@ func parseConfig(data []byte) (appConfig, error) {
 		BananasplitURL string `json:"bananasplit_url"`
 		BufferSize     int    `json:"buffer_size"`
 		IdleTimeout    string `json:"idle_timeout"`
+		ServiceToken   string `json:"service_token"`
 	}
 	if err := json.Unmarshal(jbytes, &tmp); err != nil {
 		return cfg, fmt.Errorf("decode config: %w", err)
@@ -72,6 +74,15 @@ func parseConfig(data []byte) (appConfig, error) {
 		return cfg, fmt.Errorf("invalid idle_timeout %q: %w", idle, err)
 	}
 	cfg.IdleTimeout = d
+
+	// SERVICE_TOKEN env (set by the Pulp host) wins over the manifest so
+	// secrets stay out of the committed pulp.cell.toml. The mutating
+	// control API is gated on this token; bootstrap fails closed if it's
+	// empty.
+	cfg.ServiceToken = tmp.ServiceToken
+	if st := os.Getenv("SERVICE_TOKEN"); st != "" {
+		cfg.ServiceToken = st
+	}
 
 	return cfg, nil
 }

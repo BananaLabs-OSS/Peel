@@ -5,15 +5,29 @@ import (
 	"log"
 
 	pulpgin "github.com/BananaLabs-OSS/Fiber/pulp/gin"
+	"github.com/BananaLabs-OSS/Fiber/pulp/gin/middleware"
 )
 
 // registerRoutes wires the HTTP control API. Bananasplit pushes route
 // changes here; operators can use GET /health and GET /routes for
 // observability.
-func registerRoutes(r *pulpgin.Engine, relay *Relay) {
-	r.POST("/routes", setRoute(relay))
-	r.DELETE("/routes/:playerIP", deleteRoute(relay))
-	r.DELETE("/sessions/:playerIP", closeSession(relay))
+//
+// The three state-mutating endpoints (POST /routes, DELETE /routes/:ip,
+// DELETE /sessions/:ip) are gated on the X-Service-Token shared secret —
+// the same SERVICE_TOKEN pattern Bananagine/Bananauth use — so a network
+// peer that can reach the control port cannot repoint or tear down player
+// routes (MITM/DoS) without the secret. bootstrap fails closed when the
+// token is empty, so this middleware is never a pass-through. The GET
+// observability routes (/routes, /health) are left open intentionally.
+func registerRoutes(r *pulpgin.Engine, relay *Relay, serviceToken string) {
+	// Mutating routes ride a root group gated on X-Service-Token. The
+	// empty group prefix keeps the paths identical to native Peel; only
+	// the auth middleware is interposed.
+	authed := r.Group("", middleware.ServiceAuth(serviceToken))
+	authed.POST("/routes", setRoute(relay))
+	authed.DELETE("/routes/:playerIP", deleteRoute(relay))
+	authed.DELETE("/sessions/:playerIP", closeSession(relay))
+
 	r.GET("/routes", listRoutes(relay))
 	r.GET("/health", health)
 }
@@ -36,6 +50,15 @@ func setRoute(relay *Relay) pulpgin.HandlerFunc {
 		}
 		if req.PlayerIP == "" || req.Backend == "" {
 			c.String(400, "player_ip and backend required\n")
+			return
+		}
+		// Validate the backend on the first-write/create path too. Native
+		// Peel rejects malformed backends via net.ResolveUDPAddr before
+		// storing; the cell mirrors that with the same validBackendAddr
+		// check UpdateSessionBackend uses on the change path, so a garbage
+		// or malicious address can never be persisted as a route target.
+		if !validBackendAddr(req.Backend) {
+			c.String(400, "invalid backend address\n")
 			return
 		}
 

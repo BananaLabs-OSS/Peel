@@ -23,3 +23,10 @@ buffer_size = 8388608
 
 # Idle session timeout — sessions with no activity for this long are closed
 idle_timeout = "10m"
+
+# Shared secret gating the mutating control API (POST /routes,
+# DELETE /routes/:ip, DELETE /sessions/:ip). Callers (Bananasplit) must
+# send it as the X-Service-Token header. The cell refuses to start when
+# this is empty (fail closed). Prefer the SERVICE_TOKEN env var so the
+# secret stays out of committed config; the env var overrides this value.
+service_token = ""
