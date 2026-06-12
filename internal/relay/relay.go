@@ -28,7 +28,7 @@ type Relay struct {
 
 	// Reverse mapping: backendAddr+playerPort → playerAddr
 	// So we know where to send responses
-	sessions sync.Map // playerIP → *PlayerSession
+	sessions sync.Map // playerAddr (IP:port) → *PlayerSession
 
 	bananasplitURL string
 	httpClient     *http.Client
@@ -104,11 +104,10 @@ func (r *Relay) handlePacket(data []byte, fromAddr *net.UDPAddr) {
 }
 
 func (r *Relay) getOrCreateSession(playerAddr *net.UDPAddr, backend string) (*PlayerSession, error) {
-	playerIP := playerAddr.IP.String()
+	playerKey := playerAddr.String() // IP:port — avoids NAT collision
 
-	if val, ok := r.sessions.Load(playerIP); ok {
+	if val, ok := r.sessions.Load(playerKey); ok {
 		session := val.(*PlayerSession)
-		// Don't check backend mismatch - let timer handle it
 		session.PlayerAddr.Store(playerAddr)
 		return session, nil
 	}
@@ -134,33 +133,36 @@ func (r *Relay) getOrCreateSession(playerAddr *net.UDPAddr, backend string) (*Pl
 	}
 	session.PlayerAddr.Store(playerAddr)
 
-	actual, loaded := r.sessions.LoadOrStore(playerIP, session)
+	actual, loaded := r.sessions.LoadOrStore(playerKey, session)
 	if loaded {
-		// Someone else created it first, clean up ours
 		outbound.Close()
 		return actual.(*PlayerSession), nil
 	}
 
-	go r.readBackendResponses(session, playerIP)
-	log.Printf("Session created: %s → %s", playerIP, backend)
+	go r.readBackendResponses(session, playerKey)
+	log.Printf("Session created: %s → %s", playerKey, backend)
 	return session, nil
 }
 
+// UpdateSessionBackend closes all sessions for playerIP and updates the route.
+// Sessions are now keyed by IP:port, so we range to find all matching IP.
 func (r *Relay) UpdateSessionBackend(playerIP, newBackend string) {
-	if val, ok := r.sessions.Load(playerIP); ok {
-		if _, err := net.ResolveUDPAddr("udp", newBackend); err != nil {
-			return
-		}
-		// Close old session and create new one with updated backend
-		r.CloseSession(playerIP)
-		log.Printf("Session backend updated: %s → %s", playerIP, newBackend)
-		// Next packet from this player will create a new session with the new backend
-		r.router.Set(playerIP, newBackend)
-		_ = val // consumed by CloseSession via LoadAndDelete
+	if _, err := net.ResolveUDPAddr("udp", newBackend); err != nil {
+		return
 	}
+	r.sessions.Range(func(key, val any) bool {
+		k := key.(string)
+		// key format is "IP:port"; match on IP prefix
+		if len(k) > len(playerIP) && k[:len(playerIP)] == playerIP && k[len(playerIP)] == ':' {
+			r.CloseSession(k)
+		}
+		return true
+	})
+	log.Printf("Session backend updated: %s → %s", playerIP, newBackend)
+	r.router.Set(playerIP, newBackend)
 }
 
-func (r *Relay) readBackendResponses(session *PlayerSession, playerIP string) {
+func (r *Relay) readBackendResponses(session *PlayerSession, _ string) {
 	buf := make([]byte, 65535)
 
 	for {
@@ -181,17 +183,16 @@ func (r *Relay) readBackendResponses(session *PlayerSession, playerIP string) {
 	}
 }
 
-func (r *Relay) CloseSession(playerIP string) {
-	if val, ok := r.sessions.LoadAndDelete(playerIP); ok {
+func (r *Relay) CloseSession(key string) {
+	if val, ok := r.sessions.LoadAndDelete(key); ok {
 		session := val.(*PlayerSession)
 		select {
 		case <-session.quit:
-			// Already closed
 		default:
 			close(session.quit)
 		}
 		session.OutboundConn.Close()
-		log.Printf("Session closed: %s", playerIP)
+		log.Printf("Session closed: %s", key)
 	}
 }
 
