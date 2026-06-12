@@ -3,7 +3,7 @@ module peel-deployment
 go 1.25.6
 
 require (
-	github.com/BananaLabs-OSS/Pulp v0.0.0
+	github.com/BananaLabs-OSS/Pulp v0.2.0
 	github.com/BananaLabs-OSS/Pulp-ext-http v0.0.0
 	github.com/BananaLabs-OSS/Pulp-ext-udp v0.0.0
 )
