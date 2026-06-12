@@ -36,6 +36,12 @@ type Relay struct {
 	// playerIP -> session. Key is the host portion of PlayerAddr, to
 	// match the route map which is keyed by IP only.
 	sessions map[string]*PlayerSession
+
+	// negativeCache maps playerIP → expiry wall-time (nanoseconds).
+	// An IP present here with expiry in the future means a recent
+	// requestRoute failed; skip the HTTP call for 30s to avoid
+	// blocking the step loop on every junk packet from that IP.
+	negativeCache map[string]int64
 }
 
 // New constructs an unstarted relay. Call Start to bind the inbound
@@ -48,6 +54,7 @@ func New(listenAddr, bananasplitURL string, bufferSize int, idleTimeout time.Dur
 		idleTimeout:    idleTimeout,
 		router:         NewRouter(),
 		sessions:       make(map[string]*PlayerSession),
+		negativeCache:  make(map[string]int64),
 	}
 }
 
@@ -81,14 +88,26 @@ func (r *Relay) onInbound(pkt udp.Packet) {
 
 	backend, hasRoute := r.router.Get(playerIP)
 	if !hasRoute {
+		// Check negative cache: if a recent requestRoute failed for this
+		// IP, skip the blocking HTTP call for 30s so junk packets from the
+		// same IP don't stall the step loop repeatedly.
+		nowNs := time.Now().UnixNano()
+		if exp, cached := r.negativeCache[playerIP]; cached && nowNs < exp {
+			return
+		}
+
 		// No route cached. Ask Bananasplit synchronously. This blocks
 		// the step loop for the duration of the HTTP call — acceptable
 		// since this only happens for the first packet of a session.
 		resolved, err := r.requestRoute(playerIP)
 		if err != nil {
 			log.Printf("Failed to get route for %s: %v", playerIP, err)
+			// Cache the failure for 30s to avoid repeated blocking calls.
+			r.negativeCache[playerIP] = time.Now().UnixNano() + int64(30*time.Second)
 			return
 		}
+		// Clear any stale negative cache entry on success.
+		delete(r.negativeCache, playerIP)
 		r.router.Set(playerIP, resolved)
 		backend = resolved
 	}

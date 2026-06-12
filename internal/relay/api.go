@@ -5,18 +5,39 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
 )
 
 type API struct {
-	relay *Relay
-	addr  string
+	relay        *Relay
+	addr         string
+	serviceToken string
 }
 
 func NewAPI(relay *Relay, addr string) *API {
-	return &API{
-		relay: relay,
-		addr:  addr,
+	token := os.Getenv("SERVICE_TOKEN")
+	if token == "" {
+		log.Printf("WARNING: SERVICE_TOKEN is not set — /routes endpoint is unauthenticated")
 	}
+	return &API{
+		relay:        relay,
+		addr:         addr,
+		serviceToken: token,
+	}
+}
+
+// checkServiceToken verifies the X-Service-Token header when SERVICE_TOKEN
+// is configured. Returns true if the request is allowed.
+func (a *API) checkServiceToken(w http.ResponseWriter, r *http.Request) bool {
+	if a.serviceToken == "" {
+		// No token configured — allow (backward compat).
+		return true
+	}
+	if r.Header.Get("X-Service-Token") != a.serviceToken {
+		http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+		return false
+	}
+	return true
 }
 
 func (a *API) Start() error {
@@ -32,6 +53,10 @@ func (a *API) Start() error {
 // POST /routes
 // {"player_ip": "203.0.113.50", "backend": "10.0.50.2:5521"}
 func (a *API) setRoute(w http.ResponseWriter, r *http.Request) {
+	if !a.checkServiceToken(w, r) {
+		return
+	}
+
 	var req struct {
 		PlayerIP string `json:"player_ip"`
 		Backend  string `json:"backend"`
@@ -68,6 +93,9 @@ func (a *API) setRoute(w http.ResponseWriter, r *http.Request) {
 
 // DELETE /routes/{playerIP}
 func (a *API) deleteRoute(w http.ResponseWriter, r *http.Request) {
+	if !a.checkServiceToken(w, r) {
+		return
+	}
 	playerIP := r.PathValue("playerIP")
 	if playerIP == "" {
 		http.Error(w, "player_ip required", http.StatusBadRequest)
@@ -84,6 +112,9 @@ func (a *API) deleteRoute(w http.ResponseWriter, r *http.Request) {
 
 // DELETE /sessions/{playerIP}
 func (a *API) closeSession(w http.ResponseWriter, r *http.Request) {
+	if !a.checkServiceToken(w, r) {
+		return
+	}
 	playerIP := r.PathValue("playerIP")
 	if playerIP == "" {
 		http.Error(w, "player_ip required", http.StatusBadRequest)
