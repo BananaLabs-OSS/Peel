@@ -16,7 +16,7 @@ func main() {
 	// CLI flags
 	listenAddr := flag.String("listen", "", "UDP relay address (default :5520)")
 	apiAddr := flag.String("api", "", "HTTP API address (default :8080)")
-	bananasplitURL := flag.String("bananasplit", "", "Bananasplit URL (default http://localhost:3000)")
+	bananasplitURL := flag.String("bananasplit", "", "Bananasplit URL (default http://localhost:3001)")
 	bufferSize := flag.Int("buffer", 0, "Socket buffer size in bytes (default 8388608)")
 	flag.Parse()
 

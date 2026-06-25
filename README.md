@@ -58,9 +58,10 @@ Players connect to Peel's public address. Peel looks up their IP in the route ta
 
 | Method   | Endpoint               | Description                     |
 | -------- | ---------------------- | ------------------------------- |
+| `GET`    | `/health`              | Health check                    |
 | `GET`    | `/routes`              | List all routes                 |
 | `POST`   | `/routes`              | Set route                       |
-| `DELETE` | `/routes/:player_ip`   | Remove route                    |
+| `DELETE` | `/routes/:player_ip`   | Remove route and close session  |
 | `DELETE` | `/sessions/:player_ip` | Close session only (keep route) |
 
 ## Control-API auth (X-Service-Token)
