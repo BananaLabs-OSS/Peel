@@ -196,6 +196,20 @@ func (r *Relay) CloseSession(key string) {
 	}
 }
 
+// CloseSessionsByIP closes all sessions whose key starts with playerIP+":".
+// Sessions are keyed by IP:port (to handle NAT), so the API's by-IP delete
+// must range-scan rather than exact-match. Mirrors the same scan pattern
+// used in UpdateSessionBackend.
+func (r *Relay) CloseSessionsByIP(playerIP string) {
+	r.sessions.Range(func(key, _ any) bool {
+		k := key.(string)
+		if len(k) > len(playerIP) && k[:len(playerIP)] == playerIP && k[len(playerIP)] == ':' {
+			r.CloseSession(k)
+		}
+		return true
+	})
+}
+
 func (r *Relay) requestRoute(playerIP string) (string, error) {
 	if r.bananasplitURL == "" {
 		return "", fmt.Errorf("BANANASPLIT_URL not configured")

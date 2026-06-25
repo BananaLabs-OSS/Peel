@@ -103,7 +103,7 @@ func (a *API) deleteRoute(w http.ResponseWriter, r *http.Request) {
 	}
 
 	a.relay.Router().Delete(playerIP)
-	a.relay.CloseSession(playerIP)
+	a.relay.CloseSessionsByIP(playerIP)
 	log.Printf("Route deleted: %s", playerIP)
 
 	w.WriteHeader(http.StatusOK)
@@ -121,7 +121,7 @@ func (a *API) closeSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	a.relay.CloseSession(playerIP)
+	a.relay.CloseSessionsByIP(playerIP)
 	log.Printf("Session closed via API: %s", playerIP)
 
 	w.WriteHeader(http.StatusOK)
