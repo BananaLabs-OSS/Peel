@@ -32,6 +32,8 @@ go.work.sum
 # .vscode/
 
 pulp-cell/*.wasm
+pulp-cell/peel-cell
+pulp-cell/peel-plugin
 pulp-cell/data/
 pulp-deployment/app
 pulp-deployment/data/
