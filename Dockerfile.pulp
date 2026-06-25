@@ -1,0 +1,46 @@
+# Peel — Pulp-cell container (WASM cell + native Pulp host).
+#
+# Build context is the PARENT directory (go.mod files use local
+# `replace => ../../{Fiber,Pulp,Pulp-ext-*}`):
+#
+#   docker build -f Peel/Dockerfile.pulp -t peel:latest .
+#
+# (run from the GolandProjects parent dir, or via a compose that sets
+# context: ..)
+
+# ---- Stage 1: build the cell to wasip1 WASM ----
+FROM golang:1.25 AS cell
+WORKDIR /src
+# pulp-cell/go.mod replaces:
+#   github.com/BananaLabs-OSS/Fiber => ../../Fiber
+COPY Fiber/ Fiber/
+COPY Peel/pulp-cell/ Peel/pulp-cell/
+WORKDIR /src/Peel/pulp-cell
+RUN GOOS=wasip1 GOARCH=wasm go build -buildmode=c-shared -o peel.wasm .
+
+# ---- Stage 2: build the Pulp host (pure Go → static, CGO off) ----
+FROM golang:1.25 AS host
+WORKDIR /src
+COPY Pulp/ Pulp/
+COPY Pulp-ext-http/ Pulp-ext-http/
+COPY Pulp-ext-udp/ Pulp-ext-udp/
+COPY Peel/pulp-deployment/ Peel/pulp-deployment/
+WORKDIR /src/Peel/pulp-deployment
+RUN CGO_ENABLED=0 go build -o /out/peel-host .
+
+# ---- Stage 3: runtime ----
+FROM alpine:3.20
+RUN apk add --no-cache ca-certificates
+WORKDIR /app
+COPY --from=host /out/peel-host                        /app/peel-host
+COPY --from=cell /src/Peel/pulp-cell/peel.wasm         /app/cell/peel.wasm
+COPY Peel/pulp-cell/pulp.cell.toml                     /app/cell/pulp.cell.toml
+RUN chmod +x /app/peel-host
+
+# UDP relay port + HTTP control API port
+ENV HTTP_PORT=8080
+EXPOSE 8080 5520/udp
+
+HEALTHCHECK --interval=30s --timeout=5s CMD wget -qO- http://localhost:${HTTP_PORT}/health || exit 1
+
+CMD ["/app/peel-host", "-manifest", "/app/cell/pulp.cell.toml"]
