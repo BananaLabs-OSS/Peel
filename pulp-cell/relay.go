@@ -272,9 +272,25 @@ func (r *Relay) closeSessionLocked(playerIP string) {
 	log.Printf("Session closed: %s", playerIP)
 }
 
-// SweepIdle runs once per step. Closes sessions that have been silent
-// for longer than idleTimeout.
+// SweepIdle runs once per step. It bounds two cell-only maps: it drops
+// expired negativeCache entries, and closes sessions that have been silent
+// for longer than idleTimeout — dropping each idle session's auto-resolved
+// route with it so the route table can't grow one entry per unique player
+// IP without ever shrinking.
 func (r *Relay) SweepIdle(wallNanos uint64) {
+	// Bound the negative cache independently of idleTimeout: an entry is
+	// only ever removed on a later successful lookup for the same IP
+	// (relay.go onInbound), so without this sweep a failing or spoofed
+	// source IP that never returns leaks a slot forever. Expiry was stamped
+	// with time.Now().UnixNano(); read the same clock here to compare in the
+	// same domain rather than assuming ev.WallTime shares that epoch.
+	nowNs := time.Now().UnixNano()
+	for ip, exp := range r.negativeCache {
+		if nowNs >= exp {
+			delete(r.negativeCache, ip)
+		}
+	}
+
 	if r.idleTimeout <= 0 {
 		return
 	}
@@ -282,6 +298,14 @@ func (r *Relay) SweepIdle(wallNanos uint64) {
 	for ip, sess := range r.sessions {
 		if wallNanos > sess.LastActivity && wallNanos-sess.LastActivity > cutoff {
 			r.closeSessionLocked(ip)
+			// Drop the auto-resolved route too. A route created on the first
+			// packet (onInbound) is otherwise never removed once its player
+			// goes idle — the leak-by-construction this sweep exists to
+			// prevent. A returning player simply re-resolves on next packet.
+			// API-managed routes (POST /routes) have no session and are not
+			// touched here; their lifecycle is owned by Bananasplit's
+			// DELETE /routes call, matching deleteRoute's explicit teardown.
+			r.router.Delete(ip)
 		}
 	}
 }
