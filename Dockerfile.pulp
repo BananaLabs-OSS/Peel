@@ -4,13 +4,14 @@ WORKDIR /src
 COPY Fiber/ Fiber/
 COPY Pulp-Lua/ Pulp-Lua/
 COPY Peel/ Peel/
+COPY pulp-engines/ pulp-engines/
 
 FROM source AS relay
-WORKDIR /src/Peel/pulp-cell
-RUN GOOS=wasip1 GOARCH=wasm go build -buildmode=c-shared -o peel.wasm .
+WORKDIR /src/pulp-engines/routed-udp-relay-host-cell
+RUN GOOS=wasip1 GOARCH=wasm go build -buildmode=c-shared -o routed-udp-relay.wasm .
 
 FROM source AS state
-WORKDIR /src/Peel/owner-cell
+WORKDIR /src/pulp-engines/routing-state-sqlite-cell
 RUN GOOS=wasip1 GOARCH=wasm go build -buildmode=c-shared -o routing-state.wasm .
 
 FROM source AS api
@@ -18,7 +19,7 @@ WORKDIR /src/Peel/api-cell
 RUN GOOS=wasip1 GOARCH=wasm go build -buildmode=c-shared -o peel-api.wasm .
 
 FROM source AS httpjson
-WORKDIR /src/Peel/http-client-cell
+WORKDIR /src/pulp-engines/http-json-cell
 RUN GOOS=wasip1 GOARCH=wasm go build -buildmode=c-shared -o http-json.wasm .
 
 FROM source AS lua
@@ -40,14 +41,14 @@ RUN apk add --no-cache ca-certificates
 WORKDIR /app
 COPY --from=host /out/peel-host /app/peel-host
 COPY Peel/application/ /app/application/
-COPY Peel/pulp-cell/pulp.cell.toml /app/pulp-cell/pulp.cell.toml
-COPY Peel/owner-cell/pulp.cell.toml /app/owner-cell/pulp.cell.toml
+COPY pulp-engines/routed-udp-relay-host-cell/pulp.cell.toml /pulp-engines/routed-udp-relay-host-cell/pulp.cell.toml
+COPY pulp-engines/routing-state-sqlite-cell/pulp.cell.toml /pulp-engines/routing-state-sqlite-cell/pulp.cell.toml
 COPY Peel/api-cell/pulp.cell.toml /app/api-cell/pulp.cell.toml
-COPY Peel/http-client-cell/pulp.cell.toml /app/http-client-cell/pulp.cell.toml
-COPY --from=relay /src/Peel/pulp-cell/peel.wasm /app/pulp-cell/peel.wasm
-COPY --from=state /src/Peel/owner-cell/routing-state.wasm /app/owner-cell/routing-state.wasm
+COPY pulp-engines/http-json-cell/pulp.cell.toml /pulp-engines/http-json-cell/pulp.cell.toml
+COPY --from=relay /src/pulp-engines/routed-udp-relay-host-cell/routed-udp-relay.wasm /pulp-engines/routed-udp-relay-host-cell/routed-udp-relay.wasm
+COPY --from=state /src/pulp-engines/routing-state-sqlite-cell/routing-state.wasm /pulp-engines/routing-state-sqlite-cell/routing-state.wasm
 COPY --from=api /src/Peel/api-cell/peel-api.wasm /app/api-cell/peel-api.wasm
-COPY --from=httpjson /src/Peel/http-client-cell/http-json.wasm /app/http-client-cell/http-json.wasm
+COPY --from=httpjson /src/pulp-engines/http-json-cell/http-json.wasm /pulp-engines/http-json-cell/http-json.wasm
 COPY --from=lua /src/Pulp-Lua/pulp-cell/lua-orchestrator.wasm /app/application/lua-orchestrator.wasm
 RUN chmod +x /app/peel-host
 ENV HTTP_PORT=8080

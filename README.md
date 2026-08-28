@@ -18,9 +18,9 @@ go run ./pulp-deployment -app ./application/pulp.app.toml
 
 Peel is defined by `application/peel.lua` and its public compatibility API. The compiled Pulp engines are reusable and do not know about players, Bananasplit, or game engines:
 
-- `udp-relay` moves opaque datagrams between source endpoints and route targets. Sessions use transport-prefixed endpoint keys.
-- `routing-state` persists generic `key → target` routes, grouped sessions, and expiring negative-cache entries.
-- `http-json` performs generic JSON-over-HTTP requests.
+- `routed-udp-relay` moves opaque datagrams between source endpoints and route targets. Its canonical source is `pulp-engines/routed-udp-relay-host-cell`; Peel's endpoint-key and resolver policy remain in Lua.
+- `routing-state` persists generic `key → target` routes, grouped sessions, and expiring negative-cache entries. Its canonical source is `pulp-engines/routing-state-sqlite-cell`.
+- `http-json` performs generic JSON-over-HTTP requests. Its canonical source is `pulp-engines/http-json-cell`.
 - `peel-api` preserves Peel's existing HTTP contract and dispatches commands to Lua.
 
 Lua turns those engines into Peel: it derives a public-IP route key from a source endpoint, asks Bananasplit for a backend, applies retry suppression, translates the compatibility API into generic contracts, and coordinates route/session changes. No per-packet payload crosses Lua; only new-session and control-plane decisions do.
@@ -29,10 +29,10 @@ Lua turns those engines into Peel: it derives a public-IP route key from a sourc
 
 | Setting            | Location | Default |
 | ------------------ | -------- | ------- |
-| UDP listen address | `pulp-cell/pulp.cell.toml` → `listen_addr` | `:5520` |
+| UDP listen address | `pulp-engines/routed-udp-relay-host-cell/pulp.cell.toml` → `listen_addr` | `:5520` |
 | HTTP API address   | `api-cell/pulp.cell.toml` → `api_addr`, overridden by `HTTP_PORT` | `:8080` |
-| Route resolver URL | `pulp-cell/pulp.cell.toml` → `route_resolver_url` | `http://localhost:3001/route-request` |
-| Socket buffer size | `pulp-cell/pulp.cell.toml` → `buffer_size` | `8388608` (8 MiB) |
+| Route resolver URL | `pulp-engines/routed-udp-relay-host-cell/pulp.cell.toml` → `route_resolver_url` | `http://localhost:3001/route-request` |
+| Socket buffer size | `pulp-engines/routed-udp-relay-host-cell/pulp.cell.toml` → `buffer_size` | `8388608` (8 MiB) |
 | Service token | `api-cell/pulp.cell.toml` → `service_token`, overridden by `SERVICE_TOKEN` | empty |
 
 **Docker Compose:**

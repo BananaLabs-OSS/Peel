@@ -1,16 +1,16 @@
 schema_version = 1
 name = "peel"
-version = "0.1.0"
+version = "0.2.0"
 
 cells = [
-    "../owner-cell/pulp.cell.toml",
-    "../pulp-cell/pulp.cell.toml",
+    "../../pulp-engines/routing-state-sqlite-cell/pulp.cell.toml",
+    "../../pulp-engines/routed-udp-relay-host-cell/pulp.cell.toml",
     "../api-cell/pulp.cell.toml",
-    "../http-client-cell/pulp.cell.toml",
+    "../../pulp-engines/http-json-cell/pulp.cell.toml",
     "lua-orchestrator.cell.toml",
 ]
 
 [orchestrator]
 manifest = "lua-orchestrator.cell.toml"
 script = "peel.lua"
-sha256 = "80eb76ab5712b879561d625c98d8e04787f7fa2c718d84a0345d6e15cb0f6093"
+sha256 = "32f8e2cac1c070a66c6646db8d5d225176f241d4a9a717d45444551a9f0474bc"

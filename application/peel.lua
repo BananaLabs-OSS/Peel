@@ -87,6 +87,7 @@ function M.route_list(_)
 end
 
 local EVENTS = {
+  ["route.resolve.v1"] = M.route_resolve,
   ["peel.route.resolve.v1"] = M.route_resolve,
   ["peel.http.health.v1"] = M.health,
   ["peel.http.route.set.v1"] = M.route_set,
