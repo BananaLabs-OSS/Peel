@@ -1,0 +1,21 @@
+name = "routing-state"
+version = "0.1.0"
+wasm = "routing-state.wasm"
+
+provides = [
+    "routing.state.v1.route.set",
+    "routing.state.v1.route.get",
+    "routing.state.v1.route.delete",
+    "routing.state.v1.route.list",
+    "routing.state.v1.session.touch",
+    "routing.state.v1.session.close",
+    "routing.state.v1.session.sweep",
+    "routing.state.v1.negative.record",
+    "routing.state.v1.negative.check",
+    "routing.state.v1.negative.clear",
+    "routing.state.v1.negative.sweep",
+    "routing.state.v1.snapshot.get",
+]
+consumes = []
+depends_on = []
+capabilities = ["storage.sqlite"]

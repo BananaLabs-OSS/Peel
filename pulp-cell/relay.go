@@ -1,67 +1,63 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"log"
 	"strings"
 	"time"
 
-	"github.com/BananaLabs-OSS/Fiber/pulp"
 	"github.com/BananaLabs-OSS/Fiber/pulp/udp"
+	"github.com/BananaLabs-OSS/Fiber/pulp/workflow"
 )
 
-// PlayerSession tracks the per-player outbound socket and backend binding.
-// Each session has a dedicated udp.Socket for backend->relay->player
+// PlayerSession tracks the per-player outbound socket and target binding.
+// Each session has a dedicated udp.Socket for target->relay->player
 // traffic; the OnPacket callback on that socket forwards replies to the
 // player through the shared inbound socket.
-type PlayerSession struct {
-	PlayerAddr   string // "ip:port" — full source addr of last inbound packet
-	Backend      string // "host:port" — backend target
-	OutboundSock *udp.Socket
-	LastActivity uint64 // wall-time nanoseconds
+type DatagramSession struct {
+	RouteKey       string
+	SourceEndpoint string // full source endpoint
+	Target         string // opaque UDP target
+	OutboundSock   *udp.Socket
+	LastActivity   uint64 // wall-time nanoseconds
 }
 
 // Relay owns the inbound UDP socket, the routing table, and the set of
 // per-player sessions. All state is plain maps — WASM is single-threaded.
 type Relay struct {
-	listenAddr     string
-	bananasplitURL string
-	bufferSize     int
-	idleTimeout    time.Duration
+	listenAddr       string
+	bufferSize       int
+	idleTimeout      time.Duration
+	routeEvent       string
+	routeResolverURL string
+	orchestrator     *workflow.Client
 
-	router      *Router
+	state       StateClient
 	inboundSock *udp.Socket
 
-	// playerIP -> session. Key is the host portion of PlayerAddr, to
-	// match the route map which is keyed by IP only.
-	sessions map[string]*PlayerSession
+	// player endpoint (ip:port) -> session. NAT gives simultaneous players
+	// behind one public IP distinct source ports, so the endpoint—not the
+	// host-only route key—is the live session identity.
+	sessions map[string]*DatagramSession
 
-	// negativeCache maps playerIP → expiry wall-time (nanoseconds).
+	// negativeCache maps routeKey → expiry wall-time (nanoseconds).
 	// An IP present here with expiry in the future means a recent
 	// requestRoute failed; skip the HTTP call for 30s to avoid
 	// blocking the step loop on every junk packet from that IP.
-	negativeCache map[string]int64
 }
 
 // New constructs an unstarted relay. Call Start to bind the inbound
 // socket and wire the packet callback.
-func New(listenAddr, bananasplitURL string, bufferSize int, idleTimeout time.Duration) *Relay {
+func New(listenAddr string, bufferSize int, idleTimeout time.Duration, routeEvent, routeResolverURL string) *Relay {
 	return &Relay{
-		listenAddr:     listenAddr,
-		bananasplitURL: bananasplitURL,
-		bufferSize:     bufferSize,
-		idleTimeout:    idleTimeout,
-		router:         NewRouter(),
-		sessions:       make(map[string]*PlayerSession),
-		negativeCache:  make(map[string]int64),
+		listenAddr:       listenAddr,
+		bufferSize:       bufferSize,
+		idleTimeout:      idleTimeout,
+		routeEvent:       routeEvent,
+		routeResolverURL: routeResolverURL,
+		orchestrator:     workflow.NewClient("lua-orchestrator"),
+		sessions:         make(map[string]*DatagramSession),
 	}
-}
-
-// Router exposes the underlying route table so the HTTP API can manage
-// entries directly.
-func (r *Relay) Router() *Router {
-	return r.router
 }
 
 // Start binds the inbound UDP socket and registers its packet handler.
@@ -81,66 +77,54 @@ func (r *Relay) Start() error {
 
 // onInbound runs for every datagram received on the inbound socket
 // (player -> relay). Looks up the route, finds or creates a session,
-// and forwards the packet to the backend via the session's outbound
+// and forwards the packet to the target via the session's outbound
 // socket.
 func (r *Relay) onInbound(pkt udp.Packet) {
-	playerIP := hostOf(pkt.SrcAddr)
-
-	backend, hasRoute := r.router.Get(playerIP)
-	if !hasRoute {
-		// Check negative cache: if a recent requestRoute failed for this
-		// IP, skip the blocking HTTP call for 30s so junk packets from the
-		// same IP don't stall the step loop repeatedly.
-		nowNs := time.Now().UnixNano()
-		if exp, cached := r.negativeCache[playerIP]; cached && nowNs < exp {
-			return
-		}
-
-		// No route cached. Ask Bananasplit synchronously. This blocks
-		// the step loop for the duration of the HTTP call — acceptable
-		// since this only happens for the first packet of a session.
-		resolved, err := r.requestRoute(playerIP)
+	sessionKey := "udp:" + pkt.SrcAddr
+	sess, exists := r.sessions[sessionKey]
+	if !exists {
+		routeKey, target, err := r.resolveRoute(pkt.SrcAddr, sessionKey)
 		if err != nil {
-			log.Printf("Failed to get route for %s: %v", playerIP, err)
-			// Cache the failure for 30s to avoid repeated blocking calls.
-			r.negativeCache[playerIP] = time.Now().UnixNano() + int64(30*time.Second)
+			log.Printf("Route resolution failed for %s: %v", sessionKey, err)
 			return
 		}
-		// Clear any stale negative cache entry on success.
-		delete(r.negativeCache, playerIP)
-		r.router.Set(playerIP, resolved)
-		backend = resolved
-	}
-
-	sess, err := r.getOrCreateSession(playerIP, pkt.SrcAddr, backend, pkt.ReceivedAt)
-	if err != nil {
-		log.Printf("Session error for %s: %v", playerIP, err)
-		return
+		sess, err = r.getOrCreateSession(sessionKey, routeKey, pkt.SrcAddr, target, pkt.ReceivedAt)
+		if err != nil {
+			log.Printf("Session error for %s: %v", sessionKey, err)
+			return
+		}
 	}
 
 	// Remember the most-recent source addr so replies land on the right
 	// ephemeral port.
-	sess.PlayerAddr = pkt.SrcAddr
+	sess.SourceEndpoint = pkt.SrcAddr
 	sess.LastActivity = uint64(pkt.ReceivedAt)
+	if err := r.state.SessionTouch(
+		fmt.Sprintf("session-touch:%s:%d", sessionKey, pkt.ReceivedAt),
+		sessionKey, sess.RouteKey, pkt.SrcAddr, sess.Target, fmt.Sprint(pkt.ReceivedAt),
+	); err != nil {
+		log.Printf("Session error for %s: %v", sessionKey, err)
+		return
+	}
 
 	// Native calls WriteToUDP without checking its error — packet drops
 	// are silent. Cell matches that: host-side send failures are
 	// already logged by Pulp-ext-udp at source, so double-logging here
 	// would be noise parity tests could trip on.
-	_, _ = sess.OutboundSock.Send(sess.Backend, pkt.Payload)
+	_, _ = sess.OutboundSock.Send(sess.Target, pkt.Payload)
 }
 
-// getOrCreateSession returns the existing session for playerIP or
-// synchronously opens a new outbound socket and wires its callback.
+// getOrCreateSession returns the existing session for the exact player
+// endpoint or synchronously opens a new outbound socket and wires its callback.
 // Creating a socket in the step loop is acceptable — it's a single
 // host call, no goroutines, no sleeps.
 //
-// Does NOT check for backend mismatch — matches native Peel's explicit
-// "Don't check backend mismatch" comment. The only way to change a
-// session's backend is via UpdateSessionBackend, which callers invoke
+// Does NOT check for target mismatch — matches native Peel's explicit
+// "Don't check target mismatch" comment. The only way to change a
+// session's target is via UpdateRouteTarget, which callers invoke
 // from the HTTP setRoute handler before the next packet arrives.
-func (r *Relay) getOrCreateSession(playerIP, playerAddr, backend string, now int64) (*PlayerSession, error) {
-	if sess, ok := r.sessions[playerIP]; ok {
+func (r *Relay) getOrCreateSession(sessionKey, routeKey, sourceEndpoint, target string, now int64) (*DatagramSession, error) {
+	if sess, ok := r.sessions[sessionKey]; ok {
 		return sess, nil
 	}
 
@@ -149,127 +133,54 @@ func (r *Relay) getOrCreateSession(playerIP, playerAddr, backend string, now int
 		return nil, fmt.Errorf("outbound udp listen: %w", err)
 	}
 
-	sess := &PlayerSession{
-		PlayerAddr:   playerAddr,
-		Backend:      backend,
-		OutboundSock: outbound,
-		LastActivity: uint64(now),
+	sess := &DatagramSession{
+		RouteKey:       routeKey,
+		SourceEndpoint: sourceEndpoint,
+		Target:         target,
+		OutboundSock:   outbound,
+		LastActivity:   uint64(now),
 	}
 
-	// The outbound socket's packet callback carries backend responses
-	// back to the player. We bind playerIP (not the captured PlayerAddr)
-	// because the player's ephemeral port may change — always read the
-	// current PlayerAddr from the session map at reply time.
-	ip := playerIP
+	// The outbound socket's packet callback carries target responses back to
+	// the exact source endpoint that created this flow.
+	key := sessionKey
 	outbound.OnPacket(func(pkt udp.Packet) {
-		cur, ok := r.sessions[ip]
+		cur, ok := r.sessions[key]
 		if !ok {
 			return
 		}
 		cur.LastActivity = uint64(pkt.ReceivedAt)
+		if err := r.state.SessionTouch(
+			fmt.Sprintf("session-reply:%s:%d", key, pkt.ReceivedAt),
+			key, cur.RouteKey, cur.SourceEndpoint, cur.Target, fmt.Sprint(pkt.ReceivedAt),
+		); err != nil {
+			log.Printf("Session error for %s: %v", key, err)
+			return
+		}
 		// Match native: no error logging on reply write — native's
-		// readBackendResponses does not check WriteToUDP's return.
-		_, _ = r.inboundSock.Send(cur.PlayerAddr, pkt.Payload)
+		// readTargetResponses does not check WriteToUDP's return.
+		_, _ = r.inboundSock.Send(cur.SourceEndpoint, pkt.Payload)
 	})
 
-	r.sessions[playerIP] = sess
-	log.Printf("Session created: %s → %s", playerIP, backend)
+	r.sessions[sessionKey] = sess
+	log.Printf("Session created: %s → %s", sessionKey, target)
 	return sess, nil
 }
 
-// UpdateSessionBackend closes the current session for playerIP and
-// updates the route. The next packet from that player will create a
-// new session bound to newBackend.
-//
-// Mirrors native Peel's UpdateSessionBackend: only acts when a session
-// exists for playerIP, and only after the new backend passes a basic
-// address validation (native uses net.ResolveUDPAddr; the cell has no
-// resolver in-WASM so it does a syntactic host:port check instead).
-// Rejecting malformed input here matches the native short-circuit and
-// keeps the stored route consistent with what was previously set on
-// Router.Set by the caller.
-//
-// Side-effect order matches native: close session (which logs "session
-// closed") → log "session backend updated" → Router.Set. The final
-// Router.Set is redundant with the caller's earlier Router.Set but is
-// preserved for byte-parity of side-effect ordering.
-func (r *Relay) UpdateSessionBackend(playerIP, newBackend string) {
-	if _, ok := r.sessions[playerIP]; !ok {
-		return
-	}
-	if !validBackendAddr(newBackend) {
-		return
-	}
-	r.closeSessionLocked(playerIP)
-	log.Printf("Session backend updated: %s → %s", playerIP, newBackend)
-	r.router.Set(playerIP, newBackend)
-}
-
-// validBackendAddr returns true when addr parses as host:port — the
-// WASM-side stand-in for net.ResolveUDPAddr which the cell can't call
-// (no net package in wasip1 without pulp.UDP). Accepts IPv4, IPv6 in
-// brackets, hostnames, and the ":port" short form (empty host, which
-// net.ResolveUDPAddr treats as 0.0.0.0).
-func validBackendAddr(addr string) bool {
-	if addr == "" {
-		return false
-	}
-	// IPv6 literal: "[::1]:5520"
-	if strings.HasPrefix(addr, "[") {
-		end := strings.Index(addr, "]")
-		if end < 0 || end+1 >= len(addr) || addr[end+1] != ':' {
-			return false
-		}
-		return isPort(addr[end+2:])
-	}
-	i := strings.LastIndex(addr, ":")
-	// i == 0 is the ":port" form — native's net.ResolveUDPAddr accepts
-	// it as host=0.0.0.0. i == len-1 means "host:" with no port, which
-	// native rejects.
-	if i < 0 || i == len(addr)-1 {
-		return false
-	}
-	return isPort(addr[i+1:])
-}
-
-// isPort returns true when s is a 1-5 digit decimal integer in [1,65535].
-func isPort(s string) bool {
-	if len(s) == 0 || len(s) > 5 {
-		return false
-	}
-	n := 0
-	for _, c := range s {
-		if c < '0' || c > '9' {
-			return false
-		}
-		n = n*10 + int(c-'0')
-		if n > 65535 {
-			return false
-		}
-	}
-	return n > 0
-}
-
-// CloseSession drops the session for playerIP and tears down its
-// outbound socket. Safe to call for an unknown playerIP.
-func (r *Relay) CloseSession(playerIP string) {
-	r.closeSessionLocked(playerIP)
-}
-
-// closeSessionLocked is the inner close — identical to CloseSession
+// closeSessionLocked is the inner close — identical to CloseGroup
 // but named to match the Go-stdlib convention for the no-lock variant.
 // In WASM there is no lock, but the naming signals intent.
 //
-// Native CloseSession ignores OutboundConn.Close's return; we do the
+// Native CloseGroup ignores OutboundConn.Close's return; we do the
 // same so no cell-only log line can diverge from native output.
-func (r *Relay) closeSessionLocked(playerIP string) {
-	sess, ok := r.sessions[playerIP]
+func (r *Relay) closeSessionLocked(sessionKey string) {
+	sess, ok := r.sessions[sessionKey]
 	if !ok {
 		return
 	}
 	_ = sess.OutboundSock.Close()
-	delete(r.sessions, playerIP)
-	log.Printf("Session closed: %s", playerIP)
+	delete(r.sessions, sessionKey)
+	log.Printf("Session closed: %s", sessionKey)
 }
 
 // SweepIdle runs once per step. It bounds two cell-only maps: it drops
@@ -284,71 +195,67 @@ func (r *Relay) SweepIdle(wallNanos uint64) {
 	// source IP that never returns leaks a slot forever. Expiry was stamped
 	// with time.Now().UnixNano(); read the same clock here to compare in the
 	// same domain rather than assuming ev.WallTime shares that epoch.
-	nowNs := time.Now().UnixNano()
-	for ip, exp := range r.negativeCache {
-		if nowNs >= exp {
-			delete(r.negativeCache, ip)
-		}
+	idleNanos := uint64(0)
+	if r.idleTimeout > 0 {
+		idleNanos = uint64(r.idleTimeout)
 	}
-
-	if r.idleTimeout <= 0 {
+	closed, err := r.state.Sweep(
+		fmt.Sprintf("sweep:%d", wallNanos),
+		fmt.Sprint(wallNanos), fmt.Sprint(idleNanos),
+	)
+	if err != nil {
+		log.Printf("Session sweep failed: %v", err)
 		return
 	}
-	cutoff := uint64(r.idleTimeout)
-	for ip, sess := range r.sessions {
-		if wallNanos > sess.LastActivity && wallNanos-sess.LastActivity > cutoff {
-			r.closeSessionLocked(ip)
-			// Drop the auto-resolved route too. A route created on the first
-			// packet (onInbound) is otherwise never removed once its player
-			// goes idle — the leak-by-construction this sweep exists to
-			// prevent. A returning player simply re-resolves on next packet.
-			// API-managed routes (POST /routes) have no session and are not
-			// touched here; their lifecycle is owned by Bananasplit's
-			// DELETE /routes call, matching deleteRoute's explicit teardown.
-			r.router.Delete(ip)
+	for _, sessionKey := range closed {
+		r.closeSessionLocked(sessionKey)
+		// Drop the auto-resolved route too. A route created on the first
+		// packet (onInbound) is otherwise never removed once its player
+		// goes idle — the leak-by-construction this sweep exists to
+		// prevent. A returning player simply re-resolves on next packet.
+		// API-managed routes (POST /routes) have no session and are not
+		// touched here; their lifecycle is owned by Bananasplit's
+		// DELETE /routes call, matching deleteRoute's explicit teardown.
+	}
+	r.reconcileDesiredState()
+}
+
+func (r *Relay) reconcileDesiredState() {
+	snapshot, err := r.state.Snapshot()
+	if err != nil {
+		log.Printf("State reconciliation failed: %v", err)
+		return
+	}
+	for sessionKey, session := range r.sessions {
+		durable, exists := snapshot.Sessions[sessionKey]
+		target, routed := snapshot.Routes[session.RouteKey]
+		if !exists || durable.Key != session.RouteKey || durable.Target != session.Target || !routed || target != session.Target {
+			r.closeSessionLocked(sessionKey)
 		}
 	}
 }
 
-// requestRoute asks Bananasplit for the backend that should serve
-// playerIP. Synchronous outbound HTTP via the pulp transport.
-func (r *Relay) requestRoute(playerIP string) (string, error) {
-	if r.bananasplitURL == "" {
-		return "", fmt.Errorf("bananasplit_url not configured")
-	}
-
-	body, _ := json.Marshal(map[string]string{"player_ip": playerIP})
-
-	// 5s budget: this call blocks the step loop, so a slow or dead
-	// Bananasplit must not stall packet forwarding. Fail fast, log, and
-	// drop the packet — the player's client will resend and a later
-	// fetch attempt will re-hit Bananasplit.
-	resp, err := pulp.HTTP.Fetch(pulp.HTTPFetchRequest{
-		Method:  "POST",
-		URL:     r.bananasplitURL + "/route-request",
-		Headers: map[string]string{"Content-Type": "application/json"},
-		Body:    body,
-		Timeout: 5 * time.Second,
+func (r *Relay) resolveRoute(sourceEndpoint, sessionKey string) (string, string, error) {
+	result, err := r.orchestrator.Dispatch(workflow.DispatchRequest{
+		Event: r.routeEvent,
+		Payload: map[string]any{
+			"source_endpoint": sourceEndpoint,
+			"session_key":     sessionKey,
+			"now_millis":      time.Now().UnixMilli(),
+			"resolver_url":    r.routeResolverURL,
+		},
 	})
 	if err != nil {
-		return "", fmt.Errorf("route request: %w", err)
+		return "", "", err
 	}
-	if resp.Status != 200 {
-		return "", fmt.Errorf("route request failed: %d %s", resp.Status, resp.Body)
+	value, err := workflow.DecodeValue[struct {
+		Key    string `msgpack:"key"`
+		Target string `msgpack:"target"`
+	}](result)
+	if err != nil || value.Key == "" || value.Target == "" {
+		return "", "", fmt.Errorf("composition returned no route: %w", err)
 	}
-
-	var parsed struct {
-		Backend string `json:"backend"`
-	}
-	if err := json.Unmarshal(resp.Body, &parsed); err != nil {
-		return "", fmt.Errorf("decode route response: %w", err)
-	}
-	if parsed.Backend == "" {
-		return "", fmt.Errorf("empty backend in route response")
-	}
-
-	log.Printf("Route assigned: %s -> %s", playerIP, parsed.Backend)
-	return parsed.Backend, nil
+	return value.Key, value.Target, nil
 }
 
 // Stop tears down every session and closes the inbound socket. Intended
@@ -358,13 +265,13 @@ func (r *Relay) requestRoute(playerIP string) (string, error) {
 // socket) → close inbound. Native also closes a `quit` chan first to
 // signal the hot read loop; WASM has no hot loop (packets are step-driven)
 // so that step is elided. Neither native nor cell emits the per-session
-// "session closed" log here — native bypasses CloseSession and cell
+// "session closed" log here — native bypasses CloseGroup and cell
 // mirrors that by calling OutboundSock.Close directly.
 func (r *Relay) Stop() {
 	for _, sess := range r.sessions {
 		_ = sess.OutboundSock.Close()
 	}
-	r.sessions = make(map[string]*PlayerSession)
+	r.sessions = make(map[string]*DatagramSession)
 	if r.inboundSock != nil {
 		_ = r.inboundSock.Close()
 		r.inboundSock = nil
@@ -385,4 +292,3 @@ func hostOf(addr string) string {
 	}
 	return addr
 }
-

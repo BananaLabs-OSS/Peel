@@ -1,10 +1,17 @@
-name = "peel"
+name = "udp-relay"
 version = "0.1.0"
 wasm = "peel.wasm"
 
+provides = []
+consumes = [
+    "orchestrator.dispatch",
+    "routing.state.v1.session.touch",
+    "routing.state.v1.session.sweep",
+    "routing.state.v1.snapshot.get",
+]
+depends_on = ["routing-state", "lua-orchestrator"]
+
 capabilities = [
-    "transport.http.inbound",
-    "transport.http.outbound",
     "network.udp",
 ]
 
@@ -12,25 +19,11 @@ capabilities = [
 # UDP relay listen address — inbound player traffic
 listen_addr = ":5520"
 
-# HTTP control API listen address — Bananasplit manages routes here
-api_addr = ":8080"
-
-# Bananasplit URL for on-demand route lookups
-bananasplit_url = "http://localhost:3001"
+route_event = "peel.route.resolve.v1"
+route_resolver_url = "http://localhost:3001/route-request"
 
 # Socket read buffer size in bytes (8 MiB default)
 buffer_size = 8388608
 
 # Idle session timeout — sessions with no activity for this long are closed
 idle_timeout = "10m"
-
-# Shared secret gating the mutating control API (POST /routes,
-# DELETE /routes/:ip, DELETE /sessions/:ip). Auth is OFF unless this is
-# set: when empty (the default) the cell starts and serves the control API
-# WITHOUT auth (no outage) — the control port is internal-only-bounded
-# (only the UDP listener is published). To ENABLE auth, set a non-empty
-# token HERE *and* have callers (Bananasplit PeelClient, Potassium
-# relay.Client) send the same value as the X-Service-Token header, in
-# lockstep. Prefer the SERVICE_TOKEN env var so the secret stays out of
-# committed config; the env var overrides this value.
-service_token = ""

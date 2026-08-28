@@ -1,11 +1,9 @@
 // Peel — Pulp cell port.
 //
-// UDP relay for Minecraft traffic. Listens on a configured UDP port,
-// looks up per-player routes (either cached or fetched from Bananasplit),
-// and forwards packets to the backend container. Each active player
-// gets a dedicated outbound UDP socket so backend replies return on
-// the right flow. Also exposes an HTTP control API that Bananasplit
-// uses to push or revoke routes.
+// Generic routed UDP transport. It listens on a configured UDP port,
+// asks the configured composition event to resolve new source endpoints,
+// and forwards opaque datagrams to returned targets. Each endpoint gets a
+// dedicated outbound UDP socket so replies return on the correct flow.
 //
 // Originally a standalone Go service: cmd/server/main.go, internal/relay/.
 //
@@ -17,10 +15,8 @@ package main
 import (
 	"fmt"
 	"log"
-	"os"
 
 	"github.com/BananaLabs-OSS/Fiber/pulp"
-	pulpgin "github.com/BananaLabs-OSS/Fiber/pulp/gin"
 	"github.com/BananaLabs-OSS/Fiber/pulp/udp"
 )
 
@@ -48,34 +44,9 @@ func bootstrap(configBytes []byte) error {
 	// Deliberately NOT fail-closed: an empty token must not block startup.
 
 	// --- Relay ---
-	relay := New(cfg.ListenAddr, cfg.BananasplitURL, cfg.BufferSize, cfg.IdleTimeout)
+	relay := New(cfg.ListenAddr, cfg.BufferSize, cfg.IdleTimeout, cfg.RouteEvent, cfg.RouteResolverURL)
 	if err := relay.Start(); err != nil {
 		return fmt.Errorf("relay start: %w", err)
-	}
-
-	// --- HTTP control API ---
-	//
-	// Bind an alt listener at cfg.APIAddr only if it differs from the
-	// host's default HTTP_PORT. When they match (e.g. the parity
-	// harness forwards ${PORT} into both), the routes ride the default
-	// listener and a second bind would fail with EADDRINUSE. Native
-	// Peel runs with distinct API + UDP ports; WASM keeps that model
-	// on production deployments and collapses to single-port in tests.
-	defaultPort := os.Getenv("HTTP_PORT")
-	if defaultPort == "" || cfg.APIAddr != ":"+defaultPort {
-		if err := pulp.HTTP.Listen(cfg.APIAddr); err != nil {
-			return fmt.Errorf("http listen %s: %w", cfg.APIAddr, err)
-		}
-	}
-	r := pulpgin.New()
-	registerRoutes(r, relay, cfg.ServiceToken)
-	if cfg.ServiceToken != "" {
-		log.Printf("Control-API auth ENABLED (X-Service-Token required on mutating routes)")
-	} else {
-		log.Printf("Control-API auth OFF (SERVICE_TOKEN empty); to enable, set SERVICE_TOKEN here AND have callers (Bananasplit PeelClient, Potassium relay.Client) send X-Service-Token")
-	}
-	if err := r.RegisterRoutes(); err != nil {
-		return fmt.Errorf("register routes: %w", err)
 	}
 
 	// --- Compose step handler ---
@@ -90,7 +61,7 @@ func bootstrap(configBytes []byte) error {
 			return err
 		}
 		relay.SweepIdle(ev.WallTime)
-		return r.Dispatch(ev)
+		return nil
 	})
 
 	pulp.OnShutdown(func() error {
@@ -105,9 +76,7 @@ func bootstrap(configBytes []byte) error {
 	// so it's emitted as a trailing debug line that native won't have;
 	// harness never compares stderr logs but leaving it labeled keeps
 	// grep-based forensic diffs obvious.
-	log.Printf("Peel relay listening on %s", cfg.ListenAddr)
-	log.Printf("API listening on %s", cfg.APIAddr)
-	log.Printf("Bananasplit URL: %s", cfg.BananasplitURL)
+	log.Printf("UDP relay listening on %s", cfg.ListenAddr)
 	log.Printf("Buffer size: %d bytes", cfg.BufferSize)
 	return nil
 }

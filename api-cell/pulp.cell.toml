@@ -1,0 +1,12 @@
+name = "peel-api"
+version = "0.1.0"
+wasm = "peel-api.wasm"
+
+provides = []
+consumes = ["orchestrator.dispatch"]
+depends_on = ["lua-orchestrator"]
+capabilities = ["transport.http.inbound"]
+
+[config]
+api_addr = ":8080"
+service_token = ""

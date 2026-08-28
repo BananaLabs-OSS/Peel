@@ -1,4 +1,4 @@
-module peel-cell
+module http-json-cell
 
 go 1.25
 
@@ -10,5 +10,3 @@ require (
 require github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
 
 replace github.com/BananaLabs-OSS/Fiber => ../../Fiber
-
-replace github.com/BananaLabs-OSS/Peel/lib/targetaddr => ../lib/targetaddr

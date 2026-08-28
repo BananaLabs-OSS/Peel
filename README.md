@@ -6,30 +6,34 @@ From [BananaLabs OSS](https://github.com/bananalabs-oss).
 
 ## Overview
 
-Peel is a transparent UDP relay that routes player traffic to game servers based on their IP address. Routes are updated dynamically via HTTP API, enabling seamless server transfers without client reconnection.
+Peel is a transparent UDP relay that routes player traffic to game servers based on their public IP address. Routes are updated dynamically via HTTP API, enabling seamless server transfers without client reconnection. Live sessions are keyed by transport and complete source endpoint (`udp:IP:port`), so multiple players behind the same home NAT keep independent relay sockets and reply paths.
 
 ## Quick Start
 
 ```bash
-go run ./cmd/server
+go run ./pulp-deployment -app ./application/pulp.app.toml
 ```
+
+## Composition boundary
+
+Peel is defined by `application/peel.lua` and its public compatibility API. The compiled Pulp engines are reusable and do not know about players, Bananasplit, or game engines:
+
+- `udp-relay` moves opaque datagrams between source endpoints and route targets. Sessions use transport-prefixed endpoint keys.
+- `routing-state` persists generic `key → target` routes, grouped sessions, and expiring negative-cache entries.
+- `http-json` performs generic JSON-over-HTTP requests.
+- `peel-api` preserves Peel's existing HTTP contract and dispatches commands to Lua.
+
+Lua turns those engines into Peel: it derives a public-IP route key from a source endpoint, asks Bananasplit for a backend, applies retry suppression, translates the compatibility API into generic contracts, and coordinates route/session changes. No per-packet payload crosses Lua; only new-session and control-plane decisions do.
 
 ## Configuration
 
-Configuration priority: CLI flags > Environment variables > Defaults
-
-| Setting            | Env Var            | CLI Flag       | Default                 |
-| ------------------ | ------------------ | -------------- | ----------------------- |
-| UDP listen address | `PEEL_LISTEN_ADDR` | `-listen`      | `:5520`                 |
-| HTTP API address   | `PEEL_API_ADDR`    | `-api`         | `:8080`                 |
-| Bananasplit URL    | `BANANASPLIT_URL`  | `-bananasplit` | `http://localhost:3001` |
-| Socket buffer size | `PEEL_BUFFER_SIZE` | `-buffer`      | `8388608` (8MB)         |
-
-**CLI:**
-
-```bash
-./peel -listen :5520 -api :8080 -bananasplit http://localhost:3001 -buffer 8388608
-```
+| Setting            | Location | Default |
+| ------------------ | -------- | ------- |
+| UDP listen address | `pulp-cell/pulp.cell.toml` → `listen_addr` | `:5520` |
+| HTTP API address   | `api-cell/pulp.cell.toml` → `api_addr`, overridden by `HTTP_PORT` | `:8080` |
+| Route resolver URL | `pulp-cell/pulp.cell.toml` → `route_resolver_url` | `http://localhost:3001/route-request` |
+| Socket buffer size | `pulp-cell/pulp.cell.toml` → `buffer_size` | `8388608` (8 MiB) |
+| Service token | `api-cell/pulp.cell.toml` → `service_token`, overridden by `SERVICE_TOKEN` | empty |
 
 **Docker Compose:**
 
@@ -39,8 +43,6 @@ peel:
   ports:
     - "5530:5520/udp"
     - "8080:8080"
-  environment:
-    - BANANASPLIT_URL=http://bananasplit:3001
 ```
 
 ## How It Works
@@ -88,7 +90,9 @@ it) or do nothing (callers send a token Peel ignores).
 
 ## Sessions
 
-When a route is updated for an existing player, the session's backend is hot-swapped in-place without closing the UDP socket. Use `DELETE /sessions/:player_ip` to explicitly close a session after sending a refer packet.
+Routing policy remains IP-based for compatibility with Bananasplit, while runtime session identity is endpoint-based. Players sharing a public IP therefore share the selected backend route but never share a live UDP flow. Route updates and `DELETE /sessions/:player_ip` close every active endpoint for that public IP; each player's next packet creates a fresh session against the updated route.
+
+TCP is intentionally a separate transport rather than a UDP mode. Supporting it requires a Pulp stream capability with supervised accept/connect lifecycles, bounded buffering and backpressure, deadlines, and half-close behavior. The durable session key is transport-neutral so a future TCP cell can use keys such as `tcp:<endpoint>` without changing routing ownership.
 
 **Set Route:**
 

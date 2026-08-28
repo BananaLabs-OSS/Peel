@@ -1,0 +1,20 @@
+name = "lua-orchestrator"
+version = "0.1.0"
+wasm = "lua-orchestrator.wasm"
+
+provides = ["orchestrator.dispatch"]
+consumes = [
+    "routing.state.v1.route.set",
+    "routing.state.v1.route.delete",
+    "routing.state.v1.route.list",
+    "routing.state.v1.session.close",
+    "routing.state.v1.negative.record",
+    "routing.state.v1.negative.check",
+    "routing.state.v1.negative.clear",
+    "engine.http-json.v1.request",
+]
+depends_on = ["routing-state", "http-json"]
+capabilities = []
+
+[config]
+timeout_ms = 30000

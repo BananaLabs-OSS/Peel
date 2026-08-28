@@ -1,0 +1,7 @@
+name = "http-json"
+version = "0.1.0"
+wasm = "http-json.wasm"
+provides = ["engine.http-json.v1.request"]
+consumes = []
+depends_on = []
+capabilities = ["transport.http.outbound"]
