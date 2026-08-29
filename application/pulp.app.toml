@@ -15,4 +15,4 @@ cells = [
 [orchestrator]
 manifest = "lua-orchestrator.cell.toml"
 script = "peel.lua"
-sha256 = "0fe82e3d94221ae30d2e96dc3c20f8f10dbcdcb2f738f3380a97cfd463b32f29"
+sha256 = "404de98ca88f76c161213469caad68319bc89ccaa2385bc046375b96a5ec0bf7"

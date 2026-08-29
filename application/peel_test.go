@@ -44,7 +44,7 @@ func TestPeelConsumesCanonicalSharedEngines(t *testing.T) {
 	}
 	for path, digest := range map[string]string{
 		"../../pulp-engines/routed-udp-relay-host-cell/pulp.cell.toml": "1f9fa343995d7b85d590a5c993e37c581a2d4601f3a9b6a3a2635f4e653518e3",
-		"../../pulp-engines/routed-tcp-relay-host-cell/pulp.cell.toml": "e88c7aee82a86d9dbc670f52dddbaf10db32bcb74bf50e16b96e8e6ff7d3dd7a",
+		"../../pulp-engines/routed-tcp-relay-host-cell/pulp.cell.toml": "5c4e82905ba31a70f1dad49b8bc5a25ea4d0c29f61eb8e61cb1a00001974548a",
 		"../../pulp-engines/routing-state-sqlite-cell/pulp.cell.toml":  "2d6679303b2e9395f1b903326b66668bb2e12bea3ea2e55010fca3cad111b9e5",
 		"../../pulp-engines/edge-admission-sqlite-cell/pulp.cell.toml": "08bdabaa7ed1016b098b5e77da77e2ec63abb6f7e8d5c0647053afef1f171405",
 		"../../pulp-engines/framed-edge-demo-host-cell/pulp.cell.toml": "4747d61b778cad3dbe117aca269c9e84654d17d6fdd0a92996cef2f208cffa6a",

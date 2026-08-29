@@ -1,7 +1,7 @@
 name = "peel-api"
 version = "0.1.0"
 wasm = "peel-api.wasm"
-wasm_sha256 = "ceb54586cd0fadffebc717160fbab7be5ce93aa94d8d21a576bea771f7c6b279"
+wasm_sha256 = "b218b5a450f4a7963253c65ae961f822f7934dc7fd0bb194b41efd4eccad78ab"
 
 provides = []
 consumes = ["orchestrator.dispatch"]
