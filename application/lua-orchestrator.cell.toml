@@ -5,6 +5,7 @@ wasm = "lua-orchestrator.wasm"
 provides = ["orchestrator.dispatch"]
 consumes = [
     "routing.state.v1.route.set",
+    "routing.state.v1.route.get",
     "routing.state.v1.route.delete",
     "routing.state.v1.route.list",
     "routing.state.v1.session.close",
