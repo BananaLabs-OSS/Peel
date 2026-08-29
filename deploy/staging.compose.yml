@@ -1,0 +1,47 @@
+name: sessions-edge-staging
+
+services:
+  bananasplit:
+    image: localhost/bananasplit:staging-edge
+    container_name: sessions-staging-bananasplit-edge
+    restart: unless-stopped
+    env_file: /home/debian/.config/peel-staging/edge.env
+    environment:
+      HTTP_PORT: "3001"
+      BANANAGINE_URL: http://sessions-staging-bananagine-proxy:3000
+      PEEL_URL: http://peel:8080
+      PEEL_SERVICE_TOKEN: ${PEEL_CONTROL_TOKEN:?PEEL_CONTROL_TOKEN required}
+      # The resolver API is network-private in this staging topology. PEEL's
+      # separate control API remains token-gated below.
+      SERVICE_TOKEN: ""
+    volumes:
+      - /home/debian/peel-staging-data/bananasplit:/app/data
+    networks:
+      - staging
+
+  peel:
+    image: localhost/peel:staging-edge
+    container_name: sessions-staging-peel-edge
+    restart: unless-stopped
+    depends_on:
+      bananasplit:
+        condition: service_healthy
+    env_file: /home/debian/.config/peel-staging/edge.env
+    environment:
+      HTTP_PORT: "8080"
+      PEEL_ROUTE_RESOLVER_URL: http://bananasplit:3001/route-request
+      SERVICE_TOKEN: ${PEEL_CONTROL_TOKEN:?PEEL_CONTROL_TOKEN required}
+      PEEL_ADMISSION_SERVICE_TOKEN: ${PEEL_ADMISSION_SERVICE_TOKEN:?PEEL_ADMISSION_SERVICE_TOKEN required}
+    ports:
+      - "15520:5520/udp"
+      - "15521:5521/tcp"
+      - "127.0.0.1:18082:8080/tcp"
+    volumes:
+      - /home/debian/peel-staging-data/peel:/app/data
+    networks:
+      - staging
+
+networks:
+  staging:
+    external: true
+    name: sessions-staging
