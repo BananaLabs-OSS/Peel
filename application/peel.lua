@@ -86,6 +86,18 @@ function M.route_list(_)
   return { routes = routes }
 end
 
+function M.admission_issue(payload)
+  return call("edge-admission", "edge.admission.v1.issue", payload)
+end
+
+function M.admission_consume(payload)
+  return call("edge-admission", "edge.admission.v1.consume", payload)
+end
+
+function M.admission_revoke(payload)
+  return call("edge-admission", "edge.admission.v1.revoke", payload)
+end
+
 local EVENTS = {
   ["route.resolve.v1"] = M.route_resolve,
   ["peel.route.resolve.v1"] = M.route_resolve,
@@ -94,6 +106,9 @@ local EVENTS = {
   ["peel.http.route.delete.v1"] = M.route_delete,
   ["peel.http.session.close.v1"] = M.session_close,
   ["peel.http.route.list.v1"] = M.route_list,
+  ["edge.admission.issue.v1"] = M.admission_issue,
+  ["edge.admission.consume.v1"] = M.admission_consume,
+  ["edge.admission.revoke.v1"] = M.admission_revoke,
 }
 
 for event, handler in pairs(EVENTS) do

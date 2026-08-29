@@ -1,12 +1,18 @@
 name = "peel-api"
 version = "0.1.0"
 wasm = "peel-api.wasm"
+wasm_sha256 = "954156e27f53604e8e9d0eb798c907e642d4fae086b18d048758c57381be467d"
 
 provides = []
 consumes = ["orchestrator.dispatch"]
-depends_on = ["lua-orchestrator"]
-capabilities = ["transport.http.inbound"]
+depends_on = ["lua-orchestrator", "edge-admission"]
+capabilities = ["transport.http.inbound", "entropy.read"]
 
 [config]
 api_addr = ":8080"
 service_token = ""
+admission_service_token = ""
+
+[config_env]
+service_token = "SERVICE_TOKEN"
+admission_service_token = "PEEL_ADMISSION_SERVICE_TOKEN"

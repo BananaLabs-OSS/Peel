@@ -18,12 +18,24 @@ func TestPeelConsumesCanonicalSharedEngines(t *testing.T) {
 	text := string(manifest)
 	for _, expected := range []string{
 		"../../pulp-engines/routed-udp-relay-host-cell/pulp.cell.toml",
+		"../../pulp-engines/routed-tcp-relay-host-cell/pulp.cell.toml",
 		"../../pulp-engines/routing-state-sqlite-cell/pulp.cell.toml",
+		"../../pulp-engines/edge-admission-sqlite-cell/pulp.cell.toml",
 		"../../pulp-engines/http-json-cell/pulp.cell.toml",
 	} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("application manifest does not consume shared engine %q", expected)
 		}
+	}
+	if strings.Contains(text, "framed-edge-demo-host-cell") {
+		t.Fatal("production application must not include the framed demo listener")
+	}
+	demoManifest, err := os.ReadFile("demo.pulp.app.toml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(demoManifest), "framed-edge-demo-host-cell") {
+		t.Fatal("demo application does not include the framed protocol proof")
 	}
 	for _, retired := range []string{"../owner-cell/", "../http-client-cell/"} {
 		if strings.Contains(text, retired) {
@@ -31,9 +43,12 @@ func TestPeelConsumesCanonicalSharedEngines(t *testing.T) {
 		}
 	}
 	for path, digest := range map[string]string{
-		"../../pulp-engines/routed-udp-relay-host-cell/pulp.cell.toml": "9714d185b0c4c609709f3e0a100c64126e54516393fca76b85c548fab7d10423",
-		"../../pulp-engines/routing-state-sqlite-cell/pulp.cell.toml":  "0956f1d9c5366a606e29aee1113ae4363de4e9957375b1c788b9aa481c0a3714",
-		"../../pulp-engines/http-json-cell/pulp.cell.toml":             "187b16001592dfc7f89b17e882aee0779e43674c5e9cb8e76ffffe4a0941c513",
+		"../../pulp-engines/routed-udp-relay-host-cell/pulp.cell.toml": "ec9d6b1e9253cbb2c3f7c9e61d14ebe74c3079e033edb005d3fdf019ae1c595c",
+		"../../pulp-engines/routed-tcp-relay-host-cell/pulp.cell.toml": "0f45f7b0656ba0fd8b5de701bada9cd1f75b7ccec79ae9adcc48783d854a7ec0",
+		"../../pulp-engines/routing-state-sqlite-cell/pulp.cell.toml":  "2fdb62a33c8a6c3096b27aeb00520c9ac6e873c4bde93f30ddc625d2b441d9af",
+		"../../pulp-engines/edge-admission-sqlite-cell/pulp.cell.toml": "4c0f722f8265fcb51a61a9ed4babbd984b70f22267036e09f7e728bdbe704a59",
+		"../../pulp-engines/framed-edge-demo-host-cell/pulp.cell.toml": "1f6cecf93fe4be9818b62b037955b38c2ceaea96c01a5eefe8000d1284dff09b",
+		"../../pulp-engines/http-json-cell/pulp.cell.toml":             "89ba64feefe6569aaac2b5e3c1857e4a124d24e382ab89ef0425269c83d8b1fa",
 	} {
 		engineManifest, err := os.ReadFile(path)
 		if err != nil {
@@ -52,11 +67,17 @@ func TestPeelConsumesCanonicalSharedEngines(t *testing.T) {
 	for _, expected := range []string{
 		"COPY pulp-engines/ pulp-engines/",
 		"WORKDIR /src/pulp-engines/routed-udp-relay-host-cell",
+		"WORKDIR /src/pulp-engines/routed-tcp-relay-host-cell",
 		"WORKDIR /src/pulp-engines/routing-state-sqlite-cell",
 		"WORKDIR /src/pulp-engines/http-json-cell",
+		"WORKDIR /src/pulp-engines/edge-admission-sqlite-cell",
+		"WORKDIR /src/pulp-engines/framed-edge-demo-host-cell",
 		"/pulp-engines/routed-udp-relay-host-cell/routed-udp-relay.wasm",
+		"/pulp-engines/routed-tcp-relay-host-cell/routed-tcp-relay.wasm",
 		"/pulp-engines/routing-state-sqlite-cell/routing-state.wasm",
 		"/pulp-engines/http-json-cell/http-json.wasm",
+		"/pulp-engines/edge-admission-sqlite-cell/edge-admission.wasm",
+		"/pulp-engines/framed-edge-demo-host-cell/framed-edge-demo.wasm",
 	} {
 		if !strings.Contains(containerBuild, expected) {
 			t.Fatalf("production container does not package shared engine contract %q", expected)

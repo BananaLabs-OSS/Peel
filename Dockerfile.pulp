@@ -10,9 +10,21 @@ FROM source AS relay
 WORKDIR /src/pulp-engines/routed-udp-relay-host-cell
 RUN GOOS=wasip1 GOARCH=wasm go build -buildmode=c-shared -o routed-udp-relay.wasm .
 
+FROM source AS tcp-relay
+WORKDIR /src/pulp-engines/routed-tcp-relay-host-cell
+RUN GOOS=wasip1 GOARCH=wasm go build -buildmode=c-shared -o routed-tcp-relay.wasm .
+
 FROM source AS state
 WORKDIR /src/pulp-engines/routing-state-sqlite-cell
 RUN GOOS=wasip1 GOARCH=wasm go build -buildmode=c-shared -o routing-state.wasm .
+
+FROM source AS admission
+WORKDIR /src/pulp-engines/edge-admission-sqlite-cell
+RUN GOOS=wasip1 GOARCH=wasm go build -buildmode=c-shared -o edge-admission.wasm .
+
+FROM source AS framed-demo
+WORKDIR /src/pulp-engines/framed-edge-demo-host-cell
+RUN GOOS=wasip1 GOARCH=wasm go build -buildmode=c-shared -o framed-edge-demo.wasm .
 
 FROM source AS api
 WORKDIR /src/Peel/api-cell
@@ -29,8 +41,10 @@ RUN GOOS=wasip1 GOARCH=wasm go build -buildmode=c-shared -o lua-orchestrator.was
 FROM golang:1.25 AS host
 WORKDIR /src
 COPY Pulp/ Pulp/
+COPY Pulp-ext-entropy/ Pulp-ext-entropy/
 COPY Pulp-ext-http/ Pulp-ext-http/
 COPY Pulp-ext-sqlite/ Pulp-ext-sqlite/
+COPY Pulp-ext-tcp/ Pulp-ext-tcp/
 COPY Pulp-ext-udp/ Pulp-ext-udp/
 COPY Peel/pulp-deployment/ Peel/pulp-deployment/
 WORKDIR /src/Peel/pulp-deployment
@@ -42,16 +56,22 @@ WORKDIR /app
 COPY --from=host /out/peel-host /app/peel-host
 COPY Peel/application/ /app/application/
 COPY pulp-engines/routed-udp-relay-host-cell/pulp.cell.toml /pulp-engines/routed-udp-relay-host-cell/pulp.cell.toml
+COPY pulp-engines/routed-tcp-relay-host-cell/pulp.cell.toml /pulp-engines/routed-tcp-relay-host-cell/pulp.cell.toml
 COPY pulp-engines/routing-state-sqlite-cell/pulp.cell.toml /pulp-engines/routing-state-sqlite-cell/pulp.cell.toml
+COPY pulp-engines/edge-admission-sqlite-cell/pulp.cell.toml /pulp-engines/edge-admission-sqlite-cell/pulp.cell.toml
+COPY pulp-engines/framed-edge-demo-host-cell/pulp.cell.toml /pulp-engines/framed-edge-demo-host-cell/pulp.cell.toml
 COPY Peel/api-cell/pulp.cell.toml /app/api-cell/pulp.cell.toml
 COPY pulp-engines/http-json-cell/pulp.cell.toml /pulp-engines/http-json-cell/pulp.cell.toml
 COPY --from=relay /src/pulp-engines/routed-udp-relay-host-cell/routed-udp-relay.wasm /pulp-engines/routed-udp-relay-host-cell/routed-udp-relay.wasm
+COPY --from=tcp-relay /src/pulp-engines/routed-tcp-relay-host-cell/routed-tcp-relay.wasm /pulp-engines/routed-tcp-relay-host-cell/routed-tcp-relay.wasm
 COPY --from=state /src/pulp-engines/routing-state-sqlite-cell/routing-state.wasm /pulp-engines/routing-state-sqlite-cell/routing-state.wasm
+COPY --from=admission /src/pulp-engines/edge-admission-sqlite-cell/edge-admission.wasm /pulp-engines/edge-admission-sqlite-cell/edge-admission.wasm
+COPY --from=framed-demo /src/pulp-engines/framed-edge-demo-host-cell/framed-edge-demo.wasm /pulp-engines/framed-edge-demo-host-cell/framed-edge-demo.wasm
 COPY --from=api /src/Peel/api-cell/peel-api.wasm /app/api-cell/peel-api.wasm
 COPY --from=httpjson /src/pulp-engines/http-json-cell/http-json.wasm /pulp-engines/http-json-cell/http-json.wasm
 COPY --from=lua /src/Pulp-Lua/pulp-cell/lua-orchestrator.wasm /app/application/lua-orchestrator.wasm
 RUN chmod +x /app/peel-host
 ENV HTTP_PORT=8080
-EXPOSE 8080 5520/udp
+EXPOSE 8080 5520/udp 5521/tcp
 HEALTHCHECK --interval=30s --timeout=5s CMD wget -qO- http://localhost:${HTTP_PORT}/health || exit 1
 CMD ["/app/peel-host", "-app", "/app/application/pulp.app.toml"]

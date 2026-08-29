@@ -12,8 +12,11 @@ consumes = [
     "routing.state.v1.negative.check",
     "routing.state.v1.negative.clear",
     "engine.http-json.v1.request",
+    "edge.admission.v1.issue",
+    "edge.admission.v1.consume",
+    "edge.admission.v1.revoke",
 ]
-depends_on = ["routing-state", "http-json"]
+depends_on = ["routing-state", "http-json", "edge-admission"]
 capabilities = []
 
 [config]

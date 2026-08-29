@@ -1,10 +1,11 @@
-schema_version = 1
-name = "peel"
-version = "0.2.0"
+name = "peel-edge-demo"
+version = "0.1.0"
+require_wasm_sha256 = true
 
 cells = [
     "../../pulp-engines/routing-state-sqlite-cell/pulp.cell.toml",
     "../../pulp-engines/edge-admission-sqlite-cell/pulp.cell.toml",
+    "../../pulp-engines/framed-edge-demo-host-cell/pulp.cell.toml",
     "../../pulp-engines/routed-udp-relay-host-cell/pulp.cell.toml",
     "../../pulp-engines/routed-tcp-relay-host-cell/pulp.cell.toml",
     "../api-cell/pulp.cell.toml",

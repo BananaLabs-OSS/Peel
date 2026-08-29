@@ -4,8 +4,10 @@ go 1.25.6
 
 require (
 	github.com/BananaLabs-OSS/Pulp v0.2.0
+	github.com/BananaLabs-OSS/Pulp-ext-entropy v0.0.0
 	github.com/BananaLabs-OSS/Pulp-ext-http v0.0.0
 	github.com/BananaLabs-OSS/Pulp-ext-sqlite v0.0.0
+	github.com/BananaLabs-OSS/Pulp-ext-tcp v0.0.0
 	github.com/BananaLabs-OSS/Pulp-ext-udp v0.0.0
 )
 
@@ -33,5 +35,6 @@ replace (
 	github.com/BananaLabs-OSS/Pulp-ext-fs => ../../Pulp-ext-fs
 	github.com/BananaLabs-OSS/Pulp-ext-http => ../../Pulp-ext-http
 	github.com/BananaLabs-OSS/Pulp-ext-sqlite => ../../Pulp-ext-sqlite
+	github.com/BananaLabs-OSS/Pulp-ext-tcp => ../../Pulp-ext-tcp
 	github.com/BananaLabs-OSS/Pulp-ext-udp => ../../Pulp-ext-udp
 )
