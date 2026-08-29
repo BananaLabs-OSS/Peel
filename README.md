@@ -23,6 +23,7 @@ Peel is defined by `application/peel.lua` and its public compatibility API. The 
 
 - `routed-udp-relay` moves opaque datagrams between source endpoints and route targets. Its canonical source is `pulp-engines/routed-udp-relay-host-cell`; Peel's endpoint-key and resolver policy remain in Lua.
 - `routed-tcp-relay` copies supervised opaque streams between an edge connection and a composition-selected target.
+- The TCP listener may select `minecraft-handshake-v1`: it classifies one bounded pre-encryption handshake, passes version/hostname/state metadata into routing, replays the original bytes, and then returns to the native opaque bridge. Other protocol listeners leave the module unset or select a future adapter.
 - `edge-admission` persists expiring, audience/destination-scoped grant digests and atomically consumes them once.
 - `framed-edge-demo` proves bounded length-prefix splitting, admission, semantic broadcast, and authorized target handoff without embedding a game protocol in Peel. It is present only in `application/demo.pulp.app.toml`; the production/default composition does not listen on its demo port.
 - `routing-state` persists generic `key → target` routes, grouped sessions, and expiring negative-cache entries. Its canonical source is `pulp-engines/routing-state-sqlite-cell`.
