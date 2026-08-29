@@ -12,7 +12,13 @@ capabilities = ["transport.http.inbound", "entropy.read"]
 api_addr = ":8080"
 service_token = ""
 admission_service_token = ""
+join_lease_issuer_url = ""
+join_hostname = ""
+join_port = 5521
 
 [config_env]
 service_token = "SERVICE_TOKEN"
 admission_service_token = "PEEL_ADMISSION_SERVICE_TOKEN"
+join_lease_issuer_url = "JOIN_LEASE_ISSUER_URL"
+join_hostname = "JOIN_HOSTNAME"
+join_port = "JOIN_PORT"

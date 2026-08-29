@@ -30,6 +30,9 @@ type appConfig struct {
 	APIAddr               string
 	ServiceToken          string
 	AdmissionServiceToken string
+	JoinLeaseIssuerURL    string
+	JoinHostname          string
+	JoinPort              int
 }
 
 type routeListResult struct {
@@ -44,6 +47,9 @@ func parseConfig(data []byte) (appConfig, error) {
 		APIAddr               string `json:"api_addr"`
 		ServiceToken          string `json:"service_token"`
 		AdmissionServiceToken string `json:"admission_service_token"`
+		JoinLeaseIssuerURL    string `json:"join_lease_issuer_url"`
+		JoinHostname          string `json:"join_hostname"`
+		JoinPort              int    `json:"join_port"`
 	}
 	if err := cellconfig.Decode(data, &raw); err != nil {
 		return appConfig{}, err
@@ -60,6 +66,18 @@ func parseConfig(data []byte) (appConfig, error) {
 	if token := os.Getenv("ADMISSION_SERVICE_TOKEN"); token != "" {
 		raw.AdmissionServiceToken = token
 	}
+	if value := os.Getenv("JOIN_LEASE_ISSUER_URL"); value != "" {
+		raw.JoinLeaseIssuerURL = value
+	}
+	if value := os.Getenv("JOIN_HOSTNAME"); value != "" {
+		raw.JoinHostname = value
+	}
+	if value := os.Getenv("JOIN_PORT"); value != "" {
+		raw.JoinPort, _ = strconv.Atoi(value)
+	}
+	if raw.JoinPort <= 0 || raw.JoinPort > 65535 {
+		raw.JoinPort = 5521
+	}
 	return appConfig(raw), nil
 }
 
@@ -75,7 +93,7 @@ func bootstrap(configBytes []byte) error {
 		}
 	}
 	engine := pulpgin.New()
-	registerRoutes(engine, workflow.NewClient(orchestratorCell), cfg.ServiceToken, cfg.AdmissionServiceToken)
+	registerRoutes(engine, workflow.NewClient(orchestratorCell), cfg)
 	return engine.Run()
 }
 
@@ -95,10 +113,10 @@ func dispatch[T any](client *workflow.Client, event string, payload any) (T, err
 	return workflow.DecodeValue[T](result)
 }
 
-func registerRoutes(engine *pulpgin.Engine, client *workflow.Client, serviceToken, admissionServiceToken string) {
+func registerRoutes(engine *pulpgin.Engine, client *workflow.Client, cfg appConfig) {
 	var mutating *pulpgin.RouterGroup
-	if serviceToken != "" {
-		mutating = engine.Group("", middleware.ServiceAuth(serviceToken))
+	if cfg.ServiceToken != "" {
+		mutating = engine.Group("", middleware.ServiceAuth(cfg.ServiceToken))
 	} else {
 		mutating = engine.Group("")
 	}
@@ -167,11 +185,38 @@ func registerRoutes(engine *pulpgin.Engine, client *workflow.Client, serviceToke
 	// stores only its SHA-256 digest. A Sessions browser route can call this
 	// endpoint server-to-server without disclosing its cookie to PEEL.
 	admission := engine.Group("")
-	if admissionServiceToken != "" {
-		admission = engine.Group("", middleware.ServiceAuth(admissionServiceToken))
+	if cfg.AdmissionServiceToken != "" {
+		admission = engine.Group("", middleware.ServiceAuth(cfg.AdmissionServiceToken))
 	}
+	admission.POST("/join-leases", func(c *pulpgin.Context) {
+		if cfg.AdmissionServiceToken == "" || cfg.JoinLeaseIssuerURL == "" || cfg.JoinHostname == "" {
+			c.String(503, "join lease service is not configured\n")
+			return
+		}
+		var request struct {
+			PrincipalID           string `json:"principal_id"`
+			DeviceID              string `json:"device_id"`
+			DestinationID         string `json:"destination_id"`
+			FallbackDestinationID string `json:"fallback_destination_id"`
+			TTLSeconds            int64  `json:"ttl_seconds"`
+		}
+		if c.BindJSON(&request) != nil || strings.TrimSpace(request.PrincipalID) == "" || strings.TrimSpace(request.DeviceID) == "" || strings.TrimSpace(request.DestinationID) == "" {
+			c.String(400, "principal_id, device_id, and destination_id required\n")
+			return
+		}
+		response, err := dispatch[map[string]any](client, "peel.http.join-lease.issue.v1", map[string]any{"issuer_url": cfg.JoinLeaseIssuerURL, "principal_id": request.PrincipalID, "device_id": request.DeviceID, "destination_id": request.DestinationID, "fallback_destination_id": request.FallbackDestinationID, "ttl_seconds": request.TTLSeconds})
+		if err != nil || response["token"] == nil {
+			c.String(502, "join lease issue failed\n")
+			return
+		}
+		token, _ := response["token"].(string)
+		response["connect_host"] = token + "." + strings.TrimPrefix(cfg.JoinHostname, ".")
+		response["connect_port"] = cfg.JoinPort
+		c.Header("Cache-Control", "no-store")
+		writeJSONWithNewline(c, 201, response)
+	})
 	admission.POST("/admission/grants", func(c *pulpgin.Context) {
-		if admissionServiceToken == "" {
+		if cfg.AdmissionServiceToken == "" {
 			c.String(503, "admission service credential is not configured\n")
 			return
 		}

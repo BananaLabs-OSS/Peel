@@ -32,6 +32,10 @@ services:
     environment:
       HTTP_PORT: "8080"
       PEEL_ROUTE_RESOLVER_URL: http://bananasplit:3001/route-request
+      PEEL_JOIN_HOSTNAME_SUFFIX: .join.15-204-225-51.sslip.io
+      JOIN_LEASE_ISSUER_URL: http://bananasplit:3001/join-leases
+      JOIN_HOSTNAME: join.15-204-225-51.sslip.io
+      JOIN_PORT: "15521"
       HTTP_FETCH_ALLOW: bananasplit:3001
       SERVICE_TOKEN: ${PEEL_CONTROL_TOKEN:?PEEL_CONTROL_TOKEN required}
       PEEL_ADMISSION_SERVICE_TOKEN: ${PEEL_ADMISSION_SERVICE_TOKEN:?PEEL_ADMISSION_SERVICE_TOKEN required}
