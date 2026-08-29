@@ -1,7 +1,7 @@
 name = "peel-api"
 version = "0.1.0"
 wasm = "peel-api.wasm"
-wasm_sha256 = "b218b5a450f4a7963253c65ae961f822f7934dc7fd0bb194b41efd4eccad78ab"
+wasm_sha256 = "bfa8814db17594848fb9e680bb6c8dac590fbc7f82f359000bc90c22bf81ecfe"
 
 provides = []
 consumes = ["orchestrator.dispatch"]
@@ -14,10 +14,11 @@ service_token = ""
 admission_service_token = ""
 join_lease_issuer_url = ""
 join_hostname = ""
-join_port = 5521
+join_port = "5521"
 
 [config_env]
 service_token = "SERVICE_TOKEN"
 admission_service_token = "PEEL_ADMISSION_SERVICE_TOKEN"
 join_lease_issuer_url = "JOIN_LEASE_ISSUER_URL"
 join_hostname = "JOIN_HOSTNAME"
+join_port = "JOIN_PORT"

@@ -22,6 +22,26 @@ import (
 
 const orchestratorCell = "lua-orchestrator"
 
+type configPort int
+
+func (p *configPort) UnmarshalJSON(data []byte) error {
+	var number int
+	if err := json.Unmarshal(data, &number); err == nil {
+		*p = configPort(number)
+		return nil
+	}
+	var value string
+	if err := json.Unmarshal(data, &value); err != nil {
+		return err
+	}
+	number, err := strconv.Atoi(value)
+	if err != nil {
+		return err
+	}
+	*p = configPort(number)
+	return nil
+}
+
 func main() {}
 
 func init() { pulp.OnInit(bootstrap) }
@@ -44,12 +64,12 @@ func parseConfig(data []byte) (appConfig, error) {
 		return appConfig{}, fmt.Errorf("missing [config]")
 	}
 	var raw struct {
-		APIAddr               string `json:"api_addr"`
-		ServiceToken          string `json:"service_token"`
-		AdmissionServiceToken string `json:"admission_service_token"`
-		JoinLeaseIssuerURL    string `json:"join_lease_issuer_url"`
-		JoinHostname          string `json:"join_hostname"`
-		JoinPort              int    `json:"join_port"`
+		APIAddr               string     `json:"api_addr"`
+		ServiceToken          string     `json:"service_token"`
+		AdmissionServiceToken string     `json:"admission_service_token"`
+		JoinLeaseIssuerURL    string     `json:"join_lease_issuer_url"`
+		JoinHostname          string     `json:"join_hostname"`
+		JoinPort              configPort `json:"join_port"`
 	}
 	if err := cellconfig.Decode(data, &raw); err != nil {
 		return appConfig{}, err
@@ -73,12 +93,18 @@ func parseConfig(data []byte) (appConfig, error) {
 		raw.JoinHostname = value
 	}
 	if value := os.Getenv("JOIN_PORT"); value != "" {
-		raw.JoinPort, _ = strconv.Atoi(value)
+		port, _ := strconv.Atoi(value)
+		raw.JoinPort = configPort(port)
 	}
 	if raw.JoinPort <= 0 || raw.JoinPort > 65535 {
-		raw.JoinPort = 5521
+		raw.JoinPort = configPort(5521)
 	}
-	return appConfig(raw), nil
+	return appConfig{
+		APIAddr: raw.APIAddr, ServiceToken: raw.ServiceToken,
+		AdmissionServiceToken: raw.AdmissionServiceToken,
+		JoinLeaseIssuerURL:    raw.JoinLeaseIssuerURL,
+		JoinHostname:          raw.JoinHostname, JoinPort: int(raw.JoinPort),
+	}, nil
 }
 
 func bootstrap(configBytes []byte) error {
