@@ -43,12 +43,12 @@ func TestPeelConsumesCanonicalSharedEngines(t *testing.T) {
 		}
 	}
 	for path, digest := range map[string]string{
-		"../../pulp-engines/routed-udp-relay-host-cell/pulp.cell.toml": "ec9d6b1e9253cbb2c3f7c9e61d14ebe74c3079e033edb005d3fdf019ae1c595c",
-		"../../pulp-engines/routed-tcp-relay-host-cell/pulp.cell.toml": "c715b593403b92f8bb85be19be07320f777712b692f07d8a5d84d3006e4f7060",
-		"../../pulp-engines/routing-state-sqlite-cell/pulp.cell.toml":  "2fdb62a33c8a6c3096b27aeb00520c9ac6e873c4bde93f30ddc625d2b441d9af",
-		"../../pulp-engines/edge-admission-sqlite-cell/pulp.cell.toml": "4c0f722f8265fcb51a61a9ed4babbd984b70f22267036e09f7e728bdbe704a59",
-		"../../pulp-engines/framed-edge-demo-host-cell/pulp.cell.toml": "1f6cecf93fe4be9818b62b037955b38c2ceaea96c01a5eefe8000d1284dff09b",
-		"../../pulp-engines/http-json-cell/pulp.cell.toml":             "89ba64feefe6569aaac2b5e3c1857e4a124d24e382ab89ef0425269c83d8b1fa",
+		"../../pulp-engines/routed-udp-relay-host-cell/pulp.cell.toml": "1f9fa343995d7b85d590a5c993e37c581a2d4601f3a9b6a3a2635f4e653518e3",
+		"../../pulp-engines/routed-tcp-relay-host-cell/pulp.cell.toml": "201da256abdd3ca62d45f03a620d1b7f7dd1a8371b5f34492e2d4e7353ff5412",
+		"../../pulp-engines/routing-state-sqlite-cell/pulp.cell.toml":  "2d6679303b2e9395f1b903326b66668bb2e12bea3ea2e55010fca3cad111b9e5",
+		"../../pulp-engines/edge-admission-sqlite-cell/pulp.cell.toml": "08bdabaa7ed1016b098b5e77da77e2ec63abb6f7e8d5c0647053afef1f171405",
+		"../../pulp-engines/framed-edge-demo-host-cell/pulp.cell.toml": "4747d61b778cad3dbe117aca269c9e84654d17d6fdd0a92996cef2f208cffa6a",
+		"../../pulp-engines/http-json-cell/pulp.cell.toml":             "e36553d92cd88f7bd6a3959c65f274aac2fa8e33c938031641657e3675171546",
 	} {
 		engineManifest, err := os.ReadFile(path)
 		if err != nil {
