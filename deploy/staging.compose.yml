@@ -9,6 +9,7 @@ services:
     environment:
       HTTP_PORT: "3001"
       BANANAGINE_URL: http://sessions-staging-bananagine-proxy:3000
+      BANANAGINE_TOKEN: ${BANANAGINE_TOKEN:?BANANAGINE_TOKEN required}
       PEEL_URL: http://peel:8080
       HTTP_FETCH_ALLOW: sessions-staging-bananagine-proxy:3000,peel:8080
       PEEL_SERVICE_TOKEN: ${PEEL_CONTROL_TOKEN:?PEEL_CONTROL_TOKEN required}
